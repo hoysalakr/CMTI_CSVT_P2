@@ -1,5 +1,7 @@
 import sys
 import os
+from stages.vacuum import VacuumStage
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import flet as ft
@@ -118,8 +120,17 @@ class CmtiApp:
 
     def _build_stage_body(self) -> ft.Control:
         if self.stage == Stage.DISPENSER:
-            self.dispenser_stage.auto_mode = self.auto_mode
-            return self.dispenser_stage.view()
+            return DispenserStage(
+                auto_mode=self.auto_mode,
+                on_request_error=lambda msg: self.page.snack_bar.open() or None,
+                snack=self._snack,
+            ).view()
+
+        if self.stage == Stage.VACUUM:
+            return VacuumStage(
+                auto_mode=self.auto_mode,
+                snack=self._snack,
+            ).view()
 
         return PlaceholderStage(title=f"{self.stage.value} page\n(implement later)").view()
 

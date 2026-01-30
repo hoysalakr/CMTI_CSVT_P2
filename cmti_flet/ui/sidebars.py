@@ -73,7 +73,7 @@ class StageSidebar:
 
         return ft.Container(
             width=220,
-            bgcolor=ft.Colors.with_opacity(0.55, ft.Colors.BLACK),
+            bgcolor=ft.Colors.with_opacity(0.55, ft.Colors.BLACK87),
             content=ft.Column(
                 controls=[
                     ft.Container(height=25),

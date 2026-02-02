@@ -9,9 +9,10 @@ class VacuumStage:
         If auto_mode=True -> manual actions blocked (same behavior as dispenser)
     """
 
-    def __init__(self, auto_mode: bool, snack):
+    def __init__(self, auto_mode: bool, snack, on_status=None):
         self.auto_mode = auto_mode
         self.snack = snack
+        self.on_status = on_status
 
         # Coupled motors 01.1 + 01.2 (same as dispenser coupled part)
         self.pair_distance = ft.TextField(
@@ -104,6 +105,9 @@ class VacuumStage:
         if status_text:
             status_text.value = f"VACUUM step {direction} queued ({dist}mm @ {rpm}RPM)"
             status_text.update()
+
+        if self.on_status:
+            self.on_status(0.15, "Pressure sensor: sampling + motors coupled move")
 
     def _pair_jog_start(self, direction: str, status_text: ft.Text):
         if not self._ensure_manual():

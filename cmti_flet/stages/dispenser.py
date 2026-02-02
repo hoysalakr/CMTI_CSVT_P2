@@ -9,10 +9,11 @@ class DispenserStage:
       - view() decides what to show based on auto_mode (toggle)
     """
 
-    def __init__(self, auto_mode: bool, snack, on_request_error=None):
+    def __init__(self, auto_mode: bool, snack, on_request_error=None, on_status=None):
         self.auto_mode = auto_mode
         self.snack = snack
         self.on_request_error = on_request_error
+        self.on_status = on_status
 
         # -------- AUTO state (rows) --------
         self.rows = []  # list of (measurement_tf, unit_tf)
@@ -125,6 +126,9 @@ class DispenserStage:
 
         self.snack(f"AUTO: Submitted {len(steps)} step(s) to machine (stub).")
 
+        if self.on_status:
+            self.on_status(0.60, f"Auto sequence: {len(steps)} step(s) queued")
+
     # ===================== MANUAL: commands =====================
     def _send_command(self, cmd: dict, label: str):
         # Stub: replace with your serial/network command later
@@ -158,6 +162,9 @@ class DispenserStage:
         if status_text:
             status_text.value = f"Step {direction} queued (distance {dist}mm, {rpm} RPM)"
             status_text.update()
+
+        if self.on_status:
+            self.on_status(0.25, "Motor M001: Slow move running")
 
     def _m001_jog_start(self, direction: str, status_text: ft.Text):
         if not self._ensure_manual():

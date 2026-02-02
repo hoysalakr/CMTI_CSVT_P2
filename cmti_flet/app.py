@@ -1,6 +1,9 @@
 import sys
 import os
 from stages.vacuum import VacuumStage
+from stages.dashboard import DashboardView, StageStatus
+from stages.vacuum import VacuumStage
+
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -32,6 +35,17 @@ class CmtiApp:
         self.section = TopSection.SETTINGS
         self.stage = Stage.DISPENSER
         self.auto_mode = False  # False=Manual, True=Auto
+
+        # ---------- DASHBOARD shared machine state ----------
+        self.run_state = "STOPPED"  # RUNNING / PAUSED / STOPPED
+
+        self.statuses = {
+            "Dispenser": StageStatus(active=True, progress=0.10, now_running="Motor M001 idle"),
+            "Vacuum": StageStatus(active=False, progress=0.00, now_running="Pressure sensor idle"),
+            "Heating": StageStatus(active=False, progress=0.00, now_running="Temp sensor idle"),
+            "Packaging": StageStatus(active=False, progress=0.00, now_running="Conveyor idle"),
+            "Sterilization": StageStatus(active=False, progress=0.00, now_running="UV module idle"),
+        }
 
         # Main containers
         self.primary_sidebar = PrimarySidebar(
@@ -124,15 +138,61 @@ class CmtiApp:
                 auto_mode=self.auto_mode,
                 on_request_error=lambda msg: self.page.snack_bar.open() or None,
                 snack=self._snack,
+                on_status=lambda p, msg: self.update_stage_status(
+                    "Dispenser", progress=p, now_running=msg, make_active=True
+                ),
             ).view()
 
         if self.stage == Stage.VACUUM:
             return VacuumStage(
                 auto_mode=self.auto_mode,
                 snack=self._snack,
+                on_status=lambda p, msg: self.update_stage_status(
+                    "Vacuum", progress=p, now_running=msg, make_active=True
+                ),
             ).view()
 
         return PlaceholderStage(title=f"{self.stage.value} page\n(implement later)").view()
+
+    def _set_active_stage(self, name: str):
+        for k in self.statuses:
+            self.statuses[k].active = k == name
+
+    def _dashboard_play(self, e):
+        self.run_state = "RUNNING"
+        self._snack("Machine started (stub)")
+        self._render()
+
+    def _dashboard_pause(self, e):
+        self.run_state = "PAUSED"
+        self._snack("Machine paused (stub)")
+        self._render()
+
+    def _dashboard_reset(self, e):
+        self.run_state = "STOPPED"
+        for k in self.statuses:
+            self.statuses[k].progress = 0.0
+            self.statuses[k].now_running = "Idle"
+            self.statuses[k].active = False
+        self.statuses["Dispenser"].active = True
+        self._snack("Machine reset (stub)")
+        self._render()
+
+    def update_stage_status(
+        self,
+        stage_name: str,
+        progress: float | None = None,
+        now_running: str | None = None,
+        make_active: bool = False,
+    ):
+        s = self.statuses[stage_name]
+        if progress is not None:
+            s.progress = max(0.0, min(1.0, float(progress)))
+        if now_running is not None:
+            s.now_running = now_running
+        if make_active:
+            self._set_active_stage(stage_name)
+        self._render()
 
     def _snack(self, msg: str):
         self.page.snack_bar = ft.SnackBar(ft.Text(msg))
@@ -154,7 +214,13 @@ class CmtiApp:
 
         # Main area
         if self.section == TopSection.DASHBOARD:
-            main = self._build_dashboard_page()
+            main = DashboardView(
+                statuses=self.statuses,
+                run_state=self.run_state,
+                on_play=self._dashboard_play,
+                on_pause=self._dashboard_pause,
+                on_reset=self._dashboard_reset,
+            ).view()
         else:
             title = self.stage.value
             header = self._build_header(title)

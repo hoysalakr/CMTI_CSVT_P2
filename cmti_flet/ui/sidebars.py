@@ -1,6 +1,17 @@
 import flet as ft
 from enum import Enum
 
+from theme import (
+    THEME_ACCENT,
+    THEME_ACCENT_DARK,
+    THEME_BORDER,
+    THEME_CARD,
+    THEME_SURFACE,
+    THEME_SURFACE_MUTED,
+    THEME_TEXT_PRIMARY,
+    THEME_TEXT_SECONDARY,
+)
+
 
 class PrimarySidebar:
     def __init__(self, get_active, on_select):
@@ -13,11 +24,12 @@ class PrimarySidebar:
             content=ft.ElevatedButton(
                 on_click=on_click,
                 style=ft.ButtonStyle(
-                    bgcolor=ft.Colors.BLUE_GREY if is_active else ft.Colors.BLACK54,
+                    bgcolor=THEME_ACCENT if is_active else THEME_SURFACE_MUTED,
+                    overlay_color=THEME_ACCENT_DARK,
                     shape=ft.RoundedRectangleBorder(radius=18),
                     padding=18,
                 ),
-                content=ft.Icon(icon, size=28, color=ft.Colors.WHITE if is_active else ft.Colors.WHITE70),
+                content=ft.Icon(icon, size=28, color="black" if is_active else THEME_TEXT_SECONDARY),
             ),
         )
 
@@ -30,7 +42,7 @@ class PrimarySidebar:
 
         return ft.Container(
             width=90,
-            bgcolor=ft.Colors.BLACK87,
+            bgcolor=THEME_SURFACE,
             content=ft.Column(
                 controls=[
                     ft.Container(height=18),
@@ -52,10 +64,12 @@ class StageSidebar:
             content=ft.ElevatedButton(
                 on_click=on_click,
                 style=ft.ButtonStyle(
-                    bgcolor=ft.Colors.BLUE_GREY if active else ft.Colors.BLACK87,
+                    bgcolor=THEME_ACCENT if active else THEME_SURFACE_MUTED,
+                    overlay_color=THEME_ACCENT_DARK,
                     padding=ft.padding.symmetric(vertical=14),
+                    text_style=ft.TextStyle(color="black" if active else THEME_TEXT_PRIMARY),
                 ),
-                content=ft.Text(text, text_align=ft.TextAlign.CENTER),
+                content=ft.Text(text, text_align=ft.TextAlign.CENTER, color="black" if active else THEME_TEXT_PRIMARY),
             ),
         )
 
@@ -73,7 +87,8 @@ class StageSidebar:
 
         return ft.Container(
             width=220,
-            bgcolor=ft.Colors.with_opacity(0.55, ft.Colors.BLACK87),
+            bgcolor=THEME_SURFACE,
+            border=ft.border.only(left=ft.BorderSide(1, THEME_BORDER)),
             content=ft.Column(
                 controls=[
                     ft.Container(height=25),

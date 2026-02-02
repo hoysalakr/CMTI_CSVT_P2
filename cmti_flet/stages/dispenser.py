@@ -1,5 +1,16 @@
 import flet as ft
 
+from theme import (
+    THEME_ACCENT,
+    THEME_ACCENT_DARK,
+    THEME_BORDER,
+    THEME_CARD,
+    THEME_SURFACE,
+    THEME_TEXT_MUTED,
+    THEME_TEXT_PRIMARY,
+    THEME_TEXT_SECONDARY,
+)
+
 
 class DispenserStage:
     """
@@ -42,14 +53,14 @@ class DispenserStage:
         return ft.Container(
             expand=True,
             padding=14,
-            bgcolor=ft.Colors.BLACK54,
-            border=ft.border.all(1, ft.Colors.WHITE12),
+            bgcolor=THEME_CARD,
+            border=ft.border.all(1, THEME_BORDER),
             border_radius=14,
             content=ft.Column(
                 expand=True,
                 controls=[
-                    ft.Text(title, size=18, weight=ft.FontWeight.W_700),
-                    ft.Container(height=12),
+                    ft.Text(title, size=18, weight=ft.FontWeight.W_700, color=THEME_ACCENT),
+                    ft.Container(height=10),
                     ft.Container(expand=True, content=content),
                 ],
             ),
@@ -82,7 +93,8 @@ class DispenserStage:
             return
         self.rows.pop(idx)
         list_view.controls = self._auto_rows_controls(list_view)
-        list_view.update()
+        if list_view.page is not None:
+            list_view.update()
 
     def _auto_rows_controls(self, list_view: ft.ListView):
         controls = []
@@ -91,7 +103,7 @@ class DispenserStage:
                 ft.Row(
                     vertical_alignment=ft.CrossAxisAlignment.START,
                     controls=[
-                        ft.Container(width=34, content=ft.Text(f"{i}.", color=ft.Colors.WHITE70)),
+                        ft.Container(width=34, content=ft.Text(f"{i}.", color=THEME_TEXT_SECONDARY)),
                         ft.Container(expand=True, content=m),
                         ft.IconButton(
                             icon=ft.Icons.CLOSE,
@@ -265,8 +277,8 @@ class DispenserStage:
 
     # ===================== UI: MANUAL =====================
     def manual_ui(self) -> ft.Control:
-        m001_status = ft.Text("Hold RAPID to jog fast", color=ft.Colors.WHITE70)
-        pair_status = ft.Text("Hold RAPID to jog fast (both motors)", color=ft.Colors.WHITE70)
+        m001_status = ft.Text("Hold RAPID to jog fast", color=THEME_TEXT_SECONDARY)
+        pair_status = ft.Text("Hold RAPID to jog fast (both motors)", color=THEME_TEXT_SECONDARY)
 
         def rapid_hold_btn(start_fn, stop_fn, direction: str, status_text: ft.Text):
             """Start jog when the press begins, stop when it ends/cancels."""
@@ -274,16 +286,17 @@ class DispenserStage:
                 on_tap_down=lambda e: start_fn(direction, status_text),
                 on_tap_up=lambda e: stop_fn(status_text),
                 on_tap_cancel=lambda e: stop_fn(status_text),
-                content=ft.ElevatedButton(
-                    "RAPID",
-                    on_click=lambda e: None,
-                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=22), padding=ft.padding.symmetric(14, 12)),
+                content=ft.Container(
+                    padding=ft.padding.symmetric(18, 12),
+                    bgcolor=THEME_ACCENT_DARK,
+                    border_radius=22,
+                    content=ft.Text("RAPID", weight=ft.FontWeight.W_600, color="black"),
                 ),
             )
 
         motor001_block = ft.Column(
             controls=[
-                ft.Text("Motor 001 – Manual Control", size=18, weight=ft.FontWeight.W_700),
+                ft.Text("Motor 001 – Manual Control", size=18, weight=ft.FontWeight.W_700, color=THEME_TEXT_PRIMARY),
                 ft.Container(height=12),
                 self.m001_distance,
                 ft.Container(height=10),
@@ -300,13 +313,23 @@ class DispenserStage:
                         ft.ElevatedButton(
                             "<",
                             on_click=lambda e: self._m001_slow_step("CCW", m001_status),
-                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=22), padding=ft.padding.symmetric(20, 12)),
+                            style=ft.ButtonStyle(
+                                bgcolor=THEME_ACCENT,
+                                color="black",
+                                shape=ft.RoundedRectangleBorder(radius=22),
+                                padding=ft.padding.symmetric(20, 12),
+                            ),
                         ),
                         ft.Container(width=10),
                         ft.ElevatedButton(
                             ">",
                             on_click=lambda e: self._m001_slow_step("CW", m001_status),
-                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=22), padding=ft.padding.symmetric(20, 12)),
+                            style=ft.ButtonStyle(
+                                bgcolor=THEME_ACCENT,
+                                color="black",
+                                shape=ft.RoundedRectangleBorder(radius=22),
+                                padding=ft.padding.symmetric(20, 12),
+                            ),
                         ),
                         ft.Container(width=10),
                         rapid_hold_btn(self._m001_jog_start, self._m001_jog_stop, "CW", m001_status),
@@ -320,7 +343,7 @@ class DispenserStage:
                 ft.Container(height=16),
                 ft.Divider(color=ft.Colors.WHITE12),
                 ft.Container(height=12),
-                ft.Text("Motors 01.1 + 01.2 – Control", size=18, weight=ft.FontWeight.W_700),
+                ft.Text("Motors 01.1 + 01.2 – Control", size=18, weight=ft.FontWeight.W_700, color=THEME_TEXT_PRIMARY),
                 ft.Container(height=12),
                 self.pair_distance,
                 ft.Container(height=10),
@@ -337,13 +360,23 @@ class DispenserStage:
                         ft.ElevatedButton(
                             "<",
                             on_click=lambda e: self._pair_slow_step("CCW", pair_status),
-                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=22), padding=ft.padding.symmetric(20, 12)),
+                            style=ft.ButtonStyle(
+                                bgcolor=THEME_ACCENT,
+                                color="black",
+                                shape=ft.RoundedRectangleBorder(radius=22),
+                                padding=ft.padding.symmetric(20, 12),
+                            ),
                         ),
                         ft.Container(width=10),
                         ft.ElevatedButton(
                             ">",
                             on_click=lambda e: self._pair_slow_step("CW", pair_status),
-                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=22), padding=ft.padding.symmetric(20, 12)),
+                            style=ft.ButtonStyle(
+                                bgcolor=THEME_ACCENT,
+                                color="black",
+                                shape=ft.RoundedRectangleBorder(radius=22),
+                                padding=ft.padding.symmetric(20, 12),
+                            ),
                         ),
                         ft.Container(width=10),
                         rapid_hold_btn(self._pair_jog_start, self._pair_jog_stop, "CW", pair_status),
@@ -355,6 +388,7 @@ class DispenserStage:
         # Scroll to prevent overflow like your Flutter fix
         return ft.Container(
             expand=True,
+            bgcolor=THEME_SURFACE,
             content=ft.Column(
                 expand=True,
                 controls=[
@@ -378,7 +412,8 @@ class DispenserStage:
 
         def refresh_rows():
             list_view.controls = self._auto_rows_controls(list_view)
-            list_view.update()
+            if list_view.page is not None:
+                list_view.update()
 
         def add_step(e):
             self._add_row()
@@ -387,7 +422,7 @@ class DispenserStage:
         return ft.Column(
             expand=True,
             controls=[
-                ft.Container(expand=True, content=list_view),
+                ft.Container(expand=True, content=list_view, bgcolor=THEME_SURFACE, border_radius=12, padding=10),
                 ft.Container(height=12),
                 ft.Row(
                     controls=[
@@ -395,13 +430,21 @@ class DispenserStage:
                             "Add step",
                             icon=ft.Icons.ADD,
                             on_click=add_step,
-                            style=ft.ButtonStyle(padding=ft.padding.symmetric(16, 12)),
+                            style=ft.ButtonStyle(
+                                bgcolor=THEME_ACCENT,
+                                color="black",
+                                padding=ft.padding.symmetric(16, 12),
+                            ),
                         ),
                         ft.Container(width=12),
                         ft.ElevatedButton(
                             "ENTER",
                             on_click=lambda e: self._auto_submit(),
-                            style=ft.ButtonStyle(padding=ft.padding.symmetric(18, 12)),
+                            style=ft.ButtonStyle(
+                                bgcolor=THEME_ACCENT,
+                                color="black",
+                                padding=ft.padding.symmetric(18, 12),
+                            ),
                         ),
                     ]
                 ),

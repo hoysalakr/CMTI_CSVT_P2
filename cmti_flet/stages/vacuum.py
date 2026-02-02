@@ -1,5 +1,15 @@
 import flet as ft
 
+from theme import (
+    THEME_ACCENT,
+    THEME_ACCENT_DARK,
+    THEME_BORDER,
+    THEME_CARD,
+    THEME_SURFACE,
+    THEME_TEXT_PRIMARY,
+    THEME_TEXT_SECONDARY,
+)
+
 
 class VacuumStage:
     """
@@ -42,13 +52,13 @@ class VacuumStage:
         return ft.Container(
             expand=True,
             padding=14,
-            bgcolor=ft.Colors.BLACK54,
-            border=ft.border.all(1, ft.Colors.WHITE12),
+            bgcolor=THEME_CARD,
+            border=ft.border.all(1, THEME_BORDER),
             border_radius=14,
             content=ft.Column(
                 expand=True,
                 controls=[
-                    ft.Text(title, size=18, weight=ft.FontWeight.W_700),
+                    ft.Text(title, size=18, weight=ft.FontWeight.W_700, color=THEME_TEXT_PRIMARY),
                     ft.Container(height=12),
                     ft.Container(expand=True, content=content),
                 ],
@@ -156,27 +166,25 @@ class VacuumStage:
 
     # ---------- UI ----------
     def view(self) -> ft.Control:
-        status = ft.Text("Hold RAPID to jog fast (both motors)", color=ft.Colors.WHITE70)
+        status = ft.Text("Hold RAPID to jog fast (both motors)", color=THEME_TEXT_SECONDARY)
 
         def rapid_hold_btn(direction: str):
             return ft.GestureDetector(
                 on_tap_down=lambda e: self._pair_jog_start(direction, status),
                 on_tap_up=lambda e: self._pair_jog_stop(status),
                 on_tap_cancel=lambda e: self._pair_jog_stop(status),
-                content=ft.ElevatedButton(
-                    "RAPID",
-                    on_click=lambda e: None,
-                    style=ft.ButtonStyle(
-                        shape=ft.RoundedRectangleBorder(radius=22),
-                        padding=ft.padding.symmetric(14, 12),
-                    ),
+                content=ft.Container(
+                    padding=ft.padding.symmetric(18, 12),
+                    bgcolor=THEME_ACCENT_DARK,
+                    border_radius=22,
+                    content=ft.Text("RAPID", weight=ft.FontWeight.W_600, color="black"),
                 ),
             )
 
         content = ft.ListView(
             expand=True,
             controls=[
-                ft.Text("Motors 01.1 + 01.2 – Vacuum Control", size=18, weight=ft.FontWeight.W_700),
+                ft.Text("Motors 01.1 + 01.2 – Vacuum Control", size=18, weight=ft.FontWeight.W_700, color=THEME_TEXT_PRIMARY),
                 ft.Container(height=12),
                 self.pair_distance,
                 ft.Container(height=10),
@@ -194,6 +202,8 @@ class VacuumStage:
                             "<",
                             on_click=lambda e: self._pair_slow_step("CCW", status),
                             style=ft.ButtonStyle(
+                                bgcolor=THEME_ACCENT,
+                                color="black",
                                 shape=ft.RoundedRectangleBorder(radius=22),
                                 padding=ft.padding.symmetric(20, 12),
                             ),
@@ -203,6 +213,8 @@ class VacuumStage:
                             ">",
                             on_click=lambda e: self._pair_slow_step("CW", status),
                             style=ft.ButtonStyle(
+                                bgcolor=THEME_ACCENT,
+                                color="black",
                                 shape=ft.RoundedRectangleBorder(radius=22),
                                 padding=ft.padding.symmetric(20, 12),
                             ),
@@ -214,4 +226,4 @@ class VacuumStage:
             ],
         )
 
-        return self._panel("Vacuum – Manual", content)
+        return ft.Container(bgcolor=THEME_SURFACE, content=self._panel("Vacuum – Manual", content))

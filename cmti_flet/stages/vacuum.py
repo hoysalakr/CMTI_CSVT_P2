@@ -3,6 +3,13 @@ import threading
 import flet as ft
 
 from components.auto_steps import AutoStepsPanel, Step
+from hardware import get_hardware_controller
+from hardware.stage_integration import VacuumControl
+
+try:
+    from hardware.controller import SENSOR_CONFIG
+except ImportError:  # Fallback during packaging
+    SENSOR_CONFIG = {}
 
 
 class VacuumStage:
@@ -15,7 +22,7 @@ class VacuumStage:
     """
 
     BED_MOTOR = "M001"                 # if you still use it elsewhere (optional)
-    BOX_MOTORS = ["M02.1", "M02.2"]    # only coupled motor pair shown in UI
+    BOX_MOTORS = ["M01.1", "M01.2"]    # only coupled motor pair shown in UI
 
     def __init__(self, auto_mode: bool, snack, on_status=None):
         self.auto_mode = auto_mode
@@ -50,6 +57,10 @@ class VacuumStage:
 
         self._abort = False
         self._worker = None
+
+        # ---------------- Hardware ----------------
+        self.hw = get_hardware_controller()
+        self.vacuum = VacuumControl(self.hw)
 
         # ---------------- Global Auto panel (keep as-is) ----------------
         self.auto_panel = AutoStepsPanel(
@@ -99,10 +110,26 @@ class VacuumStage:
             return False
         return True
 
-    # ===================== hardware stub =====================
-    def _send_hw(self, cmd: dict, label: str):
-        # Replace later with GPIO mapping
-        self.snack(f"{label}: {cmd}")
+    # ===================== hardware helpers =====================
+    def _actuator(self, actuator_id: str, state: str, label: str):
+        try:
+            if state.upper() in {"ON", "OPEN", "ENABLE"}:
+                self.hw.actuator_on(actuator_id)
+            else:
+                self.hw.actuator_off(actuator_id)
+            self.snack(f"{label}: {state}")
+        except Exception as exc:
+            self.snack(f"Hardware error ({label}): {exc}")
+
+    def _update_sensor_flags(self):
+        # Map toggles to real proximity readings when available
+        prox1 = self.hw.get_sensor_reading("proximity_1")
+        prox2 = self.hw.get_sensor_reading("proximity_2")
+        if prox1 is not None:
+            self.bed_in_place = bool(prox1.value)
+        if prox2 is not None:
+            self.box_seated = bool(prox2.value)
+        self._ui_update(self.status_text)
 
     # ===================== global auto submit =====================
     def _on_global_auto_submit(self, steps: list[Step]):
@@ -120,17 +147,15 @@ class VacuumStage:
             self.snack("Invalid slow RPM")
             return
 
-        self._send_hw(
-            {
-                "motors": self.BOX_MOTORS,      # M02.1, M02.2
-                "cmd": "move_mm",
-                "direction": direction,
-                "distance_mm": dist,
-                "rpm": rpm,
-                "mode": "COUPLED",
-            },
-            "BOX MOVE (COUPLED)",
-        )
+        try:
+            dir_map = {"CW": "FORWARD", "CCW": "BACKWARD"}
+            self.vacuum.jog_coupled(
+                distance=dist,
+                rpm=rpm,
+                direction=dir_map.get(direction, "FORWARD"),
+            )
+        except Exception as exc:
+            self.snack(f"Coupled move failed: {exc}")
 
     def _jog_start(self, direction: str, status: ft.Text):
         rpm = self._read_positive(self.pair_rapid_rpm)
@@ -138,24 +163,19 @@ class VacuumStage:
             self.snack("Invalid rapid RPM")
             return
 
-        self._send_hw(
-            {
-                "motors": self.BOX_MOTORS,
-                "cmd": "jog_start",
-                "direction": direction,
-                "rpm": rpm,
-                "mode": "COUPLED",
-            },
-            "BOX RAPID START",
-        )
+        try:
+            dir_map = {"CW": "FORWARD", "CCW": "BACKWARD"}
+            self.vacuum.jog_coupled_start(rpm, dir_map.get(direction, "FORWARD"))
+        except Exception as exc:
+            self.snack(f"Coupled jog start failed: {exc}")
         status.value = f"RAPID jogging {direction}… (release to stop)"
         self._ui_update(status)
 
     def _jog_stop(self, status: ft.Text):
-        self._send_hw(
-            {"motors": self.BOX_MOTORS, "cmd": "jog_stop", "mode": "COUPLED"},
-            "BOX RAPID STOP",
-        )
+        try:
+            self.vacuum.jog_coupled_stop()
+        except Exception as exc:
+            self.snack(f"Coupled jog stop failed: {exc}")
         status.value = "Hold RAPID to jog fast (both motors)"
         self._ui_update(status)
 
@@ -185,7 +205,7 @@ class VacuumStage:
         self._abort = False
 
         # Requirement: Outlet CLOSED until final open
-        self._send_hw({"solenoid_outlet": "CLOSE"}, "OUTLET SOLENOID")
+        self._actuator("solenoid_valve", "CLOSE", "OUTLET SOLENOID")
 
         # Make sure bed + box are in place
         if not self.bed_in_place:
@@ -199,9 +219,9 @@ class VacuumStage:
 
         # Pump ON + Inlet OPEN -> wait evacuate_time
         self._set_status(f"EVACUATING ({t_evac:.1f}s): Pump ON + Inlet OPEN")
-        self._send_hw({"relay_pump": "ON"}, "PUMP RELAY")
-        self._send_hw({"solenoid_inlet": "OPEN"}, "INLET SOLENOID")
-        self._send_hw({"solenoid_outlet": "CLOSE"}, "OUTLET SOLENOID")
+        self._actuator("pump_relay", "ON", "PUMP RELAY")
+        self._actuator("solenoid_inlet", "OPEN", "INLET SOLENOID")
+        self._actuator("solenoid_valve", "CLOSE", "OUTLET SOLENOID")
 
         if self.on_status:
             self.on_status(0.60, "Vacuum: evacuating")
@@ -211,9 +231,9 @@ class VacuumStage:
 
         # Inlet CLOSE + Pump OFF -> wait hold_time
         self._set_status(f"HOLDING ({t_hold:.1f}s): Inlet CLOSED + Pump OFF")
-        self._send_hw({"solenoid_inlet": "CLOSE"}, "INLET SOLENOID")
-        self._send_hw({"relay_pump": "OFF"}, "PUMP RELAY")
-        self._send_hw({"solenoid_outlet": "CLOSE"}, "OUTLET SOLENOID")
+        self._actuator("solenoid_inlet", "CLOSE", "INLET SOLENOID")
+        self._actuator("pump_relay", "OFF", "PUMP RELAY")
+        self._actuator("solenoid_valve", "CLOSE", "OUTLET SOLENOID")
 
         if self.on_status:
             self.on_status(0.85, "Vacuum: holding")
@@ -223,7 +243,7 @@ class VacuumStage:
 
         # Final: Outlet OPEN
         self._set_status("DONE: Outlet OPEN")
-        self._send_hw({"solenoid_outlet": "OPEN"}, "OUTLET SOLENOID")
+        self._actuator("solenoid_valve", "OPEN", "OUTLET SOLENOID")
 
         if self.on_status:
             self.on_status(1.00, "Vacuum: completed (outlet open)")
@@ -256,9 +276,9 @@ class VacuumStage:
         self._abort = True
 
         # Safe off
-        self._send_hw({"solenoid_inlet": "CLOSE"}, "INLET SOLENOID")
-        self._send_hw({"solenoid_outlet": "CLOSE"}, "OUTLET SOLENOID")
-        self._send_hw({"relay_pump": "OFF"}, "PUMP RELAY")
+        self._actuator("solenoid_inlet", "CLOSE", "INLET SOLENOID")
+        self._actuator("solenoid_valve", "CLOSE", "OUTLET SOLENOID")
+        self._actuator("pump_relay", "OFF", "PUMP RELAY")
 
         self._set_status("ABORTED by user")
         if self.on_status:

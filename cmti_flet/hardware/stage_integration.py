@@ -193,6 +193,24 @@ class VacuumControl:
         """Jog coupled motors M01.1 + M01.2"""
         self.coupled_controller.jog_distance(distance, rpm, direction, progress_callback)
 
+    def jog_coupled_start(self, rpm: float, direction: str):
+        """Start continuous jog for coupled motors until stopped."""
+        dir_upper = direction.upper()
+        if dir_upper not in {"FORWARD", "BACKWARD"}:
+            dir_upper = "FORWARD"
+
+        for motor_id in self.coupled_controller.motor_ids:
+            if dir_upper == "FORWARD":
+                self.hw.motor_forward(motor_id, rpm)
+            else:
+                self.hw.motor_backward(motor_id, rpm)
+
+        self.coupled_controller.is_running = True
+
+    def jog_coupled_stop(self):
+        """Stop continuous jog for coupled motors."""
+        self.coupled_controller.stop()
+
 
 class HeatingControl:
     """Heating stage hardware control"""

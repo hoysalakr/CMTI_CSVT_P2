@@ -2,6 +2,9 @@ import sys
 import os
 from stages.dashboard import DashboardView, StageStatus
 from stages.vacuum import VacuumStage
+from stages.heating import HeatingStage
+from stages.packaging import PackagingStage
+from stages.sterilization import SterilizationStage
 from theme import (
     THEME_ACCENT,
     THEME_ACCENT_DARK,
@@ -50,6 +53,9 @@ class CmtiApp:
 
         self._dispenser_stage = None
         self._vacuum_stage = None
+        self._heating_stage = None
+        self._packaging_stage = None
+        self._sterilization_stage = None
 
         # ---------- DASHBOARD shared machine state ----------
         self.run_state = "STOPPED"  # RUNNING / PAUSED / STOPPED
@@ -85,12 +91,6 @@ class CmtiApp:
             controls=[],
         )
 
-        self.dispenser_stage = DispenserStage(
-            auto_mode=self.auto_mode,
-            snack=self._snack,
-            on_request_error=self._handle_stage_error,
-        )
-
     def mount(self):
         self.page.add(self.root)
         self._render()
@@ -106,7 +106,15 @@ class CmtiApp:
 
     def _on_mode_toggle(self, e):
         self.auto_mode = bool(e.control.value)
-        self.dispenser_stage.auto_mode = self.auto_mode
+        for stage in (
+            self._dispenser_stage,
+            self._vacuum_stage,
+            self._heating_stage,
+            self._packaging_stage,
+            self._sterilization_stage,
+        ):
+            if stage is not None:
+                stage.auto_mode = self.auto_mode
         self._render()
 
     # ---------- render helpers ----------
@@ -176,6 +184,48 @@ class CmtiApp:
                 self._vacuum_stage.auto_mode = self.auto_mode
 
             return self._vacuum_stage.view()
+
+        if self.stage == Stage.HEATING:
+            if self._heating_stage is None:
+                self._heating_stage = HeatingStage(
+                    auto_mode=self.auto_mode,
+                    snack=self._snack,
+                    on_status=lambda p, msg: self.update_stage_status(
+                        "Heating", progress=p, now_running=msg, make_active=True
+                    ),
+                )
+            else:
+                self._heating_stage.auto_mode = self.auto_mode
+
+            return self._heating_stage.view()
+
+        if self.stage == Stage.PACKAGING:
+            if self._packaging_stage is None:
+                self._packaging_stage = PackagingStage(
+                    auto_mode=self.auto_mode,
+                    snack=self._snack,
+                    on_status=lambda p, msg: self.update_stage_status(
+                        "Packaging", progress=p, now_running=msg, make_active=True
+                    ),
+                )
+            else:
+                self._packaging_stage.auto_mode = self.auto_mode
+
+            return self._packaging_stage.view()
+
+        if self.stage == Stage.STERILIZATION:
+            if self._sterilization_stage is None:
+                self._sterilization_stage = SterilizationStage(
+                    auto_mode=self.auto_mode,
+                    snack=self._snack,
+                    on_status=lambda p, msg: self.update_stage_status(
+                        "Sterilization", progress=p, now_running=msg, make_active=True
+                    ),
+                )
+            else:
+                self._sterilization_stage.auto_mode = self.auto_mode
+
+            return self._sterilization_stage.view()
 
         return PlaceholderStage(title=f"{self.stage.value} page\n(implement later)").view()
 

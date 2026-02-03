@@ -1,5 +1,6 @@
 import flet as ft
 
+from components.auto_steps import AutoStepsPanel, Step
 from theme import (
     THEME_ACCENT,
     THEME_ACCENT_DARK,
@@ -26,9 +27,6 @@ class DispenserStage:
         self.on_request_error = on_request_error
         self.on_status = on_status
 
-        # -------- AUTO state (rows) --------
-        self.rows = []  # list of (measurement_tf, unit_tf)
-
         # -------- MANUAL state (Motor 001) --------
         self.m001_distance = ft.TextField(label="Distance (mm) for < and >", value="5", dense=True)
         self.m001_slow_rpm = ft.TextField(label="Slow RPM (for < and >)", value="10", dense=True)
@@ -45,8 +43,13 @@ class DispenserStage:
         self.pair_jogging = False
         self.pair_dir = None
 
-        # Build initial auto row
-        self._add_row()
+        self.auto_panel = AutoStepsPanel(
+            snack=self.snack,
+            title="Auto Inputs (Dispenser)",
+            default_unit="mm",
+            require_auto_mode=lambda: self.auto_mode,
+            on_submit=self._on_auto_steps_submit,
+        )
 
     # ===================== common helpers =====================
     def _panel(self, title: str, content: ft.Control) -> ft.Control:
@@ -81,65 +84,10 @@ class DispenserStage:
             return False
         return True
 
-    # ===================== AUTO: rows + submit =====================
-    def _add_row(self):
-        m = ft.TextField(label="Measurement", hint_text="value", dense=True, keyboard_type=ft.KeyboardType.NUMBER)
-        u = ft.TextField(label="Unit", hint_text="mm", value="mm", dense=True)
-        self.rows.append((m, u))
-
-    def _remove_row(self, idx: int, list_view: ft.ListView):
-        if len(self.rows) <= 1:
-            self.snack("At least 1 step is required.")
-            return
-        self.rows.pop(idx)
-        list_view.controls = self._auto_rows_controls(list_view)
-        if list_view.page is not None:
-            list_view.update()
-
-    def _auto_rows_controls(self, list_view: ft.ListView):
-        controls = []
-        for i, (m, u) in enumerate(self.rows, start=1):
-            controls.append(
-                ft.Row(
-                    vertical_alignment=ft.CrossAxisAlignment.START,
-                    controls=[
-                        ft.Container(width=34, content=ft.Text(f"{i}.", color=THEME_TEXT_SECONDARY)),
-                        ft.Container(expand=True, content=m),
-                        ft.IconButton(
-                            icon=ft.Icons.CLOSE,
-                            tooltip="Remove step",
-                            on_click=(lambda e, k=i - 1: self._remove_row(k, list_view)),
-                        ),
-                        ft.Container(width=130, content=u),
-                    ],
-                )
-            )
-            controls.append(ft.Container(height=10))
-        return controls
-
-    def _auto_submit(self):
-        if not self.auto_mode:
-            self.snack("Switch is MANUAL. Turn ON AUTO to submit auto steps.")
-            return
-
-        steps = []
-        for idx, (m, u) in enumerate(self.rows, start=1):
-            raw = (m.value or "").strip()
-            if raw == "":
-                self.snack(f"Row {idx}: measurement is empty")
-                return
-            try:
-                val = float(raw)
-            except:
-                self.snack(f"Row {idx}: measurement must be a number")
-                return
-            unit = (u.value or "").strip() or "mm"
-            steps.append((val, unit))
-
-        self.snack(f"AUTO: Submitted {len(steps)} step(s) to machine (stub).")
-
+    # ===================== AUTO callbacks =====================
+    def _on_auto_steps_submit(self, steps: list[Step]):
         if self.on_status:
-            self.on_status(0.60, f"Auto sequence: {len(steps)} step(s) queued")
+            self.on_status(0.60, f"Auto sequence queued: {len(steps)} step(s)")
 
     # ===================== MANUAL: commands =====================
     def _send_command(self, cmd: dict, label: str):
@@ -405,57 +353,10 @@ class DispenserStage:
             ),
         )
 
-    # ===================== UI: AUTO =====================
-    def auto_ui(self) -> ft.Control:
-        list_view = ft.ListView(expand=True, spacing=0)
-        list_view.controls = self._auto_rows_controls(list_view)
-
-        def refresh_rows():
-            list_view.controls = self._auto_rows_controls(list_view)
-            if list_view.page is not None:
-                list_view.update()
-
-        def add_step(e):
-            self._add_row()
-            refresh_rows()
-
-        return ft.Column(
-            expand=True,
-            controls=[
-                ft.Container(expand=True, content=list_view, bgcolor=THEME_SURFACE, border_radius=12, padding=10),
-                ft.Container(height=12),
-                ft.Row(
-                    controls=[
-                        ft.ElevatedButton(
-                            "Add step",
-                            icon=ft.Icons.ADD,
-                            on_click=add_step,
-                            style=ft.ButtonStyle(
-                                bgcolor=THEME_ACCENT,
-                                color="black",
-                                padding=ft.padding.symmetric(16, 12),
-                            ),
-                        ),
-                        ft.Container(width=12),
-                        ft.ElevatedButton(
-                            "ENTER",
-                            on_click=lambda e: self._auto_submit(),
-                            style=ft.ButtonStyle(
-                                bgcolor=THEME_ACCENT,
-                                color="black",
-                                padding=ft.padding.symmetric(18, 12),
-                            ),
-                        ),
-                    ]
-                ),
-            ],
-        )
-
     # ===================== final view (condition on auto_mode) =====================
     def view(self) -> ft.Control:
-        # wide layout similar to your Flutter LayoutBuilder (>=900 -> 2 panels)
         manual_panel = self._panel("Manual", self.manual_ui())
-        auto_panel = self._panel("Auto Inputs (Dispenser)", self.auto_ui())
+        auto_panel = self.auto_panel.view()
 
         return ft.ResponsiveRow(
             columns=12,

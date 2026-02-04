@@ -23,6 +23,7 @@ class VacuumStage:
 
     BED_MOTOR = "M001"                 # if you still use it elsewhere (optional)
     BOX_MOTORS = ["M01.1", "M01.2"]    # only coupled motor pair shown in UI
+    AUTO_BOX_RPM = 30                    # Fixed RPM for automatic positioning
 
     def __init__(self, auto_mode: bool, snack, on_status=None):
         self.auto_mode = auto_mode
@@ -47,11 +48,6 @@ class VacuumStage:
             dense=True,
             keyboard_type=ft.KeyboardType.NUMBER,
         )
-
-        # Bed-in-place / Box-in-place can later come from sensors.
-        # For base solution we keep a toggle to simulate "bed is in place + box seated".
-        self.bed_in_place = False
-        self.box_seated = False
 
         self.status_text = ft.Text("Status: IDLE", color=ft.Colors.WHITE70)
 
@@ -121,16 +117,6 @@ class VacuumStage:
         except Exception as exc:
             self.snack(f"Hardware error ({label}): {exc}")
 
-    def _update_sensor_flags(self):
-        # Map toggles to real proximity readings when available
-        prox1 = self.hw.get_sensor_reading("proximity_1")
-        prox2 = self.hw.get_sensor_reading("proximity_2")
-        if prox1 is not None:
-            self.bed_in_place = bool(prox1.value)
-        if prox2 is not None:
-            self.box_seated = bool(prox2.value)
-        self._ui_update(self.status_text)
-
     # ===================== global auto submit =====================
     def _on_global_auto_submit(self, steps: list[Step]):
         if self.on_status:
@@ -156,6 +142,16 @@ class VacuumStage:
             )
         except Exception as exc:
             self.snack(f"Coupled move failed: {exc}")
+
+    def _move_box_to_position(self):
+        dist = self._read_positive(self.pair_distance)
+        if dist is None:
+            raise ValueError("Set a valid coupled distance before running vacuum sequence")
+
+        try:
+            self.vacuum.jog_coupled(distance=dist, rpm=self.AUTO_BOX_RPM, direction="FORWARD")
+        except Exception as exc:
+            raise RuntimeError(f"Coupled move failed: {exc}") from exc
 
     def _jog_start(self, direction: str, status: ft.Text):
         rpm = self._read_positive(self.pair_rapid_rpm)
@@ -207,21 +203,21 @@ class VacuumStage:
         # Requirement: Outlet CLOSED until final open
         self._actuator("solenoid_valve", "CLOSE", "OUTLET SOLENOID")
 
-        # Make sure bed + box are in place
-        if not self.bed_in_place:
-            self._set_status("BLOCKED: bed not in position")
-            self.snack("Bed is not in position. Set 'Bed in place' first.")
+        # Move box based on coupled distance input
+        try:
+            self._set_status("POSITIONING: Moving vacuum box")
+            self._move_box_to_position()
+        except ValueError as err:
+            self.snack(str(err))
             return
-        if not self.box_seated:
-            self._set_status("BLOCKED: box not seated")
-            self.snack("Vacuum box not seated. Set 'Box seated' first.")
+        except RuntimeError as err:
+            self.snack(str(err))
             return
 
         # Pump ON + Inlet OPEN -> wait evacuate_time
         self._set_status(f"EVACUATING ({t_evac:.1f}s): Pump ON + Inlet OPEN")
         self._actuator("pump_relay", "ON", "PUMP RELAY")
         self._actuator("solenoid_inlet", "OPEN", "INLET SOLENOID")
-        self._actuator("solenoid_valve", "CLOSE", "OUTLET SOLENOID")
 
         if self.on_status:
             self.on_status(0.60, "Vacuum: evacuating")
@@ -229,11 +225,13 @@ class VacuumStage:
         if not self._sleep_or_abort(t_evac):
             return
 
-        # Inlet CLOSE + Pump OFF -> wait hold_time
-        self._set_status(f"HOLDING ({t_hold:.1f}s): Inlet CLOSED + Pump OFF")
+        # Inlet CLOSE -> Pump stays ON until inlet closed
+        self._set_status("INLET CLOSING: Pump still ON")
         self._actuator("solenoid_inlet", "CLOSE", "INLET SOLENOID")
+
+        # Pump OFF
+        self._set_status("PUMP OFF: Holding vacuum")
         self._actuator("pump_relay", "OFF", "PUMP RELAY")
-        self._actuator("solenoid_valve", "CLOSE", "OUTLET SOLENOID")
 
         if self.on_status:
             self.on_status(0.85, "Vacuum: holding")
@@ -321,24 +319,6 @@ class VacuumStage:
                 self.hold_time,
                 ft.Container(height=12),
 
-                # base “position” toggles (replace with sensors later)
-                ft.Row(
-                    controls=[
-                        ft.Switch(
-                            label="Bed in place (sensor/toggle)",
-                            value=self.bed_in_place,
-                            on_change=lambda e: setattr(self, "bed_in_place", e.control.value),
-                        ),
-                        ft.Container(width=10),
-                        ft.Switch(
-                            label="Box seated (sensor/toggle)",
-                            value=self.box_seated,
-                            on_change=lambda e: setattr(self, "box_seated", e.control.value),
-                        ),
-                    ]
-                ),
-
-                ft.Container(height=10),
                 ft.Row(
                     controls=[
                         ft.ElevatedButton("START AUTO VACUUM", icon=ft.Icons.PLAY_ARROW, on_click=self.start_auto_vacuum),

@@ -32,7 +32,10 @@ except ImportError:
     I2C_AVAILABLE = False
     logger.warning("Adafruit I2C libraries not available")
 
-from hardware.gpio_config import MOTOR_CONFIG, SENSOR_CONFIG, ACTUATOR_CONFIG, PWM_BASE_FREQUENCY
+try:
+    from .gpio_config import MOTOR_CONFIG, SENSOR_CONFIG, ACTUATOR_CONFIG, PWM_BASE_FREQUENCY
+except ImportError:
+    from cmti_flet.hardware.gpio_config import MOTOR_CONFIG, SENSOR_CONFIG, ACTUATOR_CONFIG, PWM_BASE_FREQUENCY  # type: ignore
 
 
 @dataclass

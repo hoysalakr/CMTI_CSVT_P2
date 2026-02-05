@@ -36,7 +36,23 @@ class DashboardView:
     # ---------- UI pieces ----------
     def _stage_card(self, name: str, s: StageStatus) -> ft.Control:
         border_color = ft.Colors.GREEN_ACCENT if s.active else ft.Colors.WHITE12
-        bg = ft.Colors.with_opacity(0.20, ft.Colors.GREEN) if s.active else ft.Colors.BLACK54
+        bg = (
+            ft.LinearGradient(
+                begin=ft.alignment.top_left,
+                end=ft.alignment.bottom_right,
+                colors=[ft.Colors.GREEN_ACCENT.with_opacity(0.25), ft.Colors.BLACK54],
+            )
+            if s.active
+            else ft.Colors.BLACK54
+        )
+        glow = [
+            ft.BoxShadow(
+                spread_radius=3,
+                blur_radius=18,
+                color=ft.Colors.GREEN_ACCENT.with_opacity(0.45),
+                offset=ft.Offset(0, 0),
+            )
+        ] if s.active else []
 
         card = ft.Container(
             width=self.card_w,
@@ -45,6 +61,7 @@ class DashboardView:
             bgcolor=bg,
             border_radius=14,
             border=ft.border.all(2 if s.active else 1, border_color),
+            shadow=glow,
             content=ft.Column(
                 spacing=8,
                 controls=[
@@ -96,9 +113,16 @@ class DashboardView:
     def _arrow_down(self) -> ft.Control:
         return ft.Container(
             width=self.card_w,
-            height=60,
+            height=40,
             alignment=ft.alignment.Alignment(0, 0),
             content=ft.Icon(ft.Icons.ARROW_DOWNWARD, size=22, color=ft.Colors.WHITE30),
+        )
+
+    def _arrow_vertical(self) -> ft.Control:
+        return ft.Container(
+            height=36,
+            alignment=ft.alignment.Alignment(0, 0),
+            content=ft.Icon(ft.Icons.ARROW_DOWNWARD, size=20, color=ft.Colors.WHITE24),
         )
 
     def _arrow_blank(self) -> ft.Control:
@@ -140,37 +164,14 @@ class DashboardView:
 
     # ---------- Final dashboard ----------
     def view(self) -> ft.Control:
-        # Grid: 2 rows x 3 columns of stages
-        # Row1: Dispenser -> Vacuum -> Heating
-        # Row2: Packaging -> Sterilization (placed under Heating path) + empty
-        # Connection: Heating ↓ Packaging, Packaging -> Sterilization
+        # Vertical flow listing – matches dashboard plus highlights active stage
+        flow = ["Dispenser", "Vacuum", "Heating", "Packaging", "Sterilization"]
+        flow_controls: list[ft.Control] = []
 
-        r1 = ft.Row(
-            spacing=self.gap,
-            controls=[
-                self._stage_card("Dispenser", self.statuses["Dispenser"]),
-                self._arrow_h(),
-                self._stage_card("Vacuum", self.statuses["Vacuum"]),
-                self._arrow_h(),
-                self._stage_card("Heating", self.statuses["Heating"]),
-            ],
-        )
-
-        # Down arrow drops directly beneath Heating card
-        down = ft.Container(
-            margin=ft.margin.only(left=self._heating_offset()),
-            content=self._arrow_down(),
-        )
-
-        # Bottom row: Sterilization <- Packaging (aligned per request)
-        r2 = ft.Row(
-            spacing=self.gap,
-            controls=[
-                self._stage_card("Sterilization", self.statuses["Sterilization"]),
-                self._arrow_left(),
-                self._stage_card("Packaging", self.statuses["Packaging"]),
-            ],
-        )
+        for idx, stage_name in enumerate(flow):
+            flow_controls.append(self._stage_card(stage_name, self.statuses[stage_name]))
+            if idx < len(flow) - 1:
+                flow_controls.append(self._arrow_vertical())
 
         return ft.Container(
             expand=True,
@@ -182,9 +183,7 @@ class DashboardView:
                     self._controls_bar(),
                     ft.Divider(color=ft.Colors.WHITE12),
                     ft.Text("Process Flow", size=18, weight=ft.FontWeight.BOLD),
-                    r1,
-                    down,
-                    r2,
+                    ft.Column(spacing=10, controls=flow_controls, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                 ],
             ),
         )

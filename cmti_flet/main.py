@@ -1,5 +1,9 @@
 import flet as ft
-from app import CmtiApp
+
+try:
+    from .app import CmtiApp  # When executed via `python -m cmti_flet.main`
+except ImportError:
+    from app import CmtiApp  # When running `python cmti_flet\main.py`
 
 
 def main(page: ft.Page):

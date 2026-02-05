@@ -7,7 +7,7 @@ import time
 import sys
 
 try:
-    from hardware import get_hardware_controller, HARDWARE_AVAILABLE, I2C_AVAILABLE
+    from cmti_flet.hardware import get_hardware_controller, HARDWARE_AVAILABLE, I2C_AVAILABLE
 except ImportError as e:
     print(f"❌ Hardware module not found: {e}")
     print("   Install with: pip3 install -r requirements.txt")
@@ -211,7 +211,7 @@ def test_stage_integration(hw):
         return False
     
     try:
-        from hardware.stage_integration import DispenserControl, VacuumControl
+        from cmti_flet.hardware.stage_integration import DispenserControl, VacuumControl
         
         print("\nTesting DispenserControl...")
         dispenser = DispenserControl(hw)

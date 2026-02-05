@@ -8,6 +8,11 @@ import threading
 from typing import Callable, Optional, List
 import logging
 
+try:
+    from . import get_hardware_controller
+except ImportError:
+    from cmti_flet.hardware import get_hardware_controller  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 

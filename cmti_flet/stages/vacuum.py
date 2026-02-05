@@ -2,72 +2,104 @@ import time
 import threading
 import flet as ft
 
-from components.auto_steps import AutoStepsPanel, Step
-from hardware import get_hardware_controller
-from hardware.stage_integration import VacuumControl
-
-try:
-    from hardware.controller import SENSOR_CONFIG
-except ImportError:  # Fallback during packaging
-    SENSOR_CONFIG = {}
+try:  # Preferred when running as package (python -m cmti_flet.main)
+    from cmti_flet.hardware import get_hardware_controller
+    from cmti_flet.hardware.stage_integration import VacuumControl
+    from cmti_flet.hardware.controller import SENSOR_CONFIG
+except ModuleNotFoundError:
+    from hardware import get_hardware_controller
+    from hardware.stage_integration import VacuumControl
+    try:
+        from hardware.controller import SENSOR_CONFIG
+    except ImportError:
+        SENSOR_CONFIG = {}
 
 
 class VacuumStage:
-    """
-    Vacuum stage:
-      - Box movement is MANUAL via coupled motors UI (M02.1 + M02.2) — same as Dispenser coupled UI
-      - Vacuum process is AUTOMATIC once bed is in place (or when Start pressed)
-      - Only two timing inputs: evacuate_time and hold_time
-      - Global Auto panel stays
-    """
+    """Vacuum stage manual + auto sequence with shared inputs."""
 
-    BED_MOTOR = "M001"                 # if you still use it elsewhere (optional)
-    BOX_MOTORS = ["M01.1", "M01.2"]    # only coupled motor pair shown in UI
-    AUTO_BOX_RPM = 30                    # Fixed RPM for automatic positioning
+    BOX_MOTORS = ["M01.1", "M01.2"]
+    AUTO_BOX_RPM = 30
+    AUTO_STEP_LABELS = [
+        "Box move down",
+        "Pump ON",
+        "Inlet OPEN + evacuate",
+        "Inlet CLOSE",
+        "Pump OFF",
+        "Hold",
+        "Outlet OPEN",
+        "Box move up",
+        "Outlet CLOSE",
+    ]
 
     def __init__(self, auto_mode: bool, snack, on_status=None):
         self.auto_mode = auto_mode
         self.snack = snack
         self.on_status = on_status
 
-        # ---------------- Coupled motors inputs (ONLY THIS for box movement) ----------------
-        self.pair_distance = ft.TextField(label="Distance (mm) for < and > (both)", value="5", dense=True)
-        self.pair_slow_rpm = ft.TextField(label="Slow RPM (for < and >)", value="10", dense=True)
+        # Shared manual inputs (feed both manual + auto flows)
+        self.pair_distance = ft.TextField(label="Distance (mm)", value="5", dense=True)
+        self.pair_slow_rpm = ft.TextField(label="Slow RPM (manual < / >)", value="10", dense=True)
         self.pair_rapid_rpm = ft.TextField(label="Rapid RPM (hold RAPID)", value="60", dense=True)
-
-        # ---------------- Vacuum timing inputs (ONLY 2 inputs) ----------------
-        self.evacuate_time = ft.TextField(
-            label="Evacuate time (seconds)",
-            value="10",
-            dense=True,
-            keyboard_type=ft.KeyboardType.NUMBER,
-        )
-        self.hold_time = ft.TextField(
-            label="Hold time (seconds)",
-            value="5",
-            dense=True,
-            keyboard_type=ft.KeyboardType.NUMBER,
-        )
+        self.evacuate_time = ft.TextField(label="Evacuate time (s)", value="10", dense=True, keyboard_type=ft.KeyboardType.NUMBER)
+        self.hold_time = ft.TextField(label="Hold time (s)", value="5", dense=True, keyboard_type=ft.KeyboardType.NUMBER)
 
         self.status_text = ft.Text("Status: IDLE", color=ft.Colors.WHITE70)
 
         self._abort = False
         self._worker = None
+        self._pause_event = threading.Event()
+        self._pause_event.set()
+        self._current_step_index = -1
+
+        self._step_states = ["pending"] * len(self.AUTO_STEP_LABELS)
+        self._step_controls = [self._build_step_chip(i, label) for i, label in enumerate(self.AUTO_STEP_LABELS)]
 
         # ---------------- Hardware ----------------
         self.hw = get_hardware_controller()
         self.vacuum = VacuumControl(self.hw)
 
-        # ---------------- Global Auto panel (keep as-is) ----------------
-        self.auto_panel = AutoStepsPanel(
-            snack=self.snack,
-            title="Auto Inputs (Global) — Vacuum",
-            default_unit="mm",
-            require_auto_mode=lambda: self.auto_mode,
-            on_submit=self._on_global_auto_submit,
-        )
-
     # ===================== helpers =====================
+    def _build_step_chip(self, idx: int, label: str) -> ft.Control:
+        text = ft.Text(label, size=13, color=ft.Colors.WHITE70, expand=True)
+        indicator = ft.Container(width=10, height=10, border_radius=20, bgcolor=ft.Colors.WHITE24)
+        chip = ft.Container(
+            padding=ft.padding.symmetric(12, 10),
+            bgcolor=ft.Colors.GREY_900,
+            border_radius=12,
+            border=ft.border.all(1, ft.Colors.WHITE10),
+            content=ft.Row(controls=[indicator, ft.Container(width=12), text], alignment=ft.MainAxisAlignment.START),
+            expand=True,
+        )
+        chip.data = {"text": text, "indicator": indicator, "idx": idx}
+        return chip
+
+    def _set_step_state(self, idx: int, state: str):
+        if idx < 0 or idx >= len(self._step_states):
+            return
+        self._step_states[idx] = state
+        chip = self._step_controls[idx]
+        text = chip.data["text"]
+        indicator = chip.data["indicator"]
+        colors = {
+            "pending": (ft.Colors.GREY_900, ft.Colors.WHITE38, ft.Colors.WHITE24),
+            "active": (ft.Colors.BLUE_500, ft.Colors.BLACK, ft.Colors.AMBER_200),
+            "done": (ft.Colors.GREEN_600, ft.Colors.BLACK, ft.Colors.LIGHT_GREEN_ACCENT),
+            "aborted": (ft.Colors.RED_700, ft.Colors.WHITE, ft.Colors.RED_ACCENT),
+        }
+        bgcolor, tcolor, ind_color = colors.get(state, (ft.Colors.GREY_900, ft.Colors.WHITE70, ft.Colors.WHITE24))
+        chip.bgcolor = ft.Colors.with_opacity(0.95, bgcolor)
+        chip.border = ft.border.all(1.5 if state == "active" else 1, ft.Colors.WHITE24)
+        text.color = tcolor
+        text.weight = ft.FontWeight.W_600 if state == "active" else ft.FontWeight.NORMAL
+        indicator.bgcolor = ind_color
+        self._ui_update(chip)
+
+    def _reset_sequence_state(self):
+        self._current_step_index = -1
+        for idx in range(len(self._step_states)):
+            self._set_step_state(idx, "pending")
+
     def _panel(self, title: str, content: ft.Control) -> ft.Control:
         return ft.Container(
             padding=14,
@@ -117,11 +149,6 @@ class VacuumStage:
         except Exception as exc:
             self.snack(f"Hardware error ({label}): {exc}")
 
-    # ===================== global auto submit =====================
-    def _on_global_auto_submit(self, steps: list[Step]):
-        if self.on_status:
-            self.on_status(0.10, f"Vacuum: Global steps loaded ({len(steps)} step(s))")
-
     # ===================== coupled motor commands (same logic, different name) =====================
     def _move_coupled(self, direction: str):
         dist = self._read_positive(self.pair_distance)
@@ -143,13 +170,9 @@ class VacuumStage:
         except Exception as exc:
             self.snack(f"Coupled move failed: {exc}")
 
-    def _move_box_to_position(self):
-        dist = self._read_positive(self.pair_distance)
-        if dist is None:
-            raise ValueError("Set a valid coupled distance before running vacuum sequence")
-
+    def _move_box(self, distance: float, direction: str):
         try:
-            self.vacuum.jog_coupled(distance=dist, rpm=self.AUTO_BOX_RPM, direction="FORWARD")
+            self.vacuum.jog_coupled(distance=distance, rpm=self.AUTO_BOX_RPM, direction=direction)
         except Exception as exc:
             raise RuntimeError(f"Coupled move failed: {exc}") from exc
 
@@ -189,62 +212,68 @@ class VacuumStage:
         )
 
     # ===================== AUTOMATIC VACUUM SEQUENCE =====================
-    def _sleep_or_abort(self, seconds: float) -> bool:
-        end = time.time() + seconds
-        while time.time() < end:
+    def _wait_with_pause(self, seconds: float) -> bool:
+        target = time.time() + seconds
+        while True:
             if self._abort:
                 return False
-            time.sleep(0.1)
-        return True
+            self._pause_event.wait()
+            now = time.time()
+            if now >= target:
+                return True
+            time.sleep(0.05)
 
-    def _run_vacuum_sequence(self, t_evac: float, t_hold: float):
+    def _run_vacuum_sequence(self, distance: float, t_evac: float, t_hold: float):
         self._abort = False
+        self._pause_event.set()
+        self._reset_sequence_state()
 
-        # Requirement: Outlet CLOSED until final open
         self._actuator("solenoid_valve", "CLOSE", "OUTLET SOLENOID")
 
-        # Move box based on coupled distance input
-        try:
-            self._set_status("POSITIONING: Moving vacuum box")
-            self._move_box_to_position()
-        except ValueError as err:
-            self.snack(str(err))
-            return
-        except RuntimeError as err:
-            self.snack(str(err))
-            return
+        steps = [
+            ("Box moving down", lambda: self._move_box(distance, "FORWARD")),
+            ("Pump ON", lambda: self._actuator("pump_relay", "ON", "PUMP RELAY") or True),
+            (
+                f"Evacuating for {t_evac:.1f}s",
+                lambda: self._actuator("solenoid_inlet", "OPEN", "INLET SOLENOID") or self._wait_with_pause(t_evac),
+            ),
+            ("Inlet CLOSE", lambda: self._actuator("solenoid_inlet", "CLOSE", "INLET SOLENOID") or True),
+            ("Pump OFF", lambda: self._actuator("pump_relay", "OFF", "PUMP RELAY") or True),
+            (f"Hold for {t_hold:.1f}s", lambda: self._wait_with_pause(t_hold)),
+            ("Outlet OPEN", lambda: self._actuator("solenoid_valve", "OPEN", "OUTLET SOLENOID") or True),
+            ("Box moving up", lambda: self._move_box(distance, "BACKWARD")),
+            ("Outlet CLOSE", lambda: self._actuator("solenoid_valve", "CLOSE", "OUTLET SOLENOID") or True),
+        ]
 
-        # Pump ON + Inlet OPEN -> wait evacuate_time
-        self._set_status(f"EVACUATING ({t_evac:.1f}s): Pump ON + Inlet OPEN")
-        self._actuator("pump_relay", "ON", "PUMP RELAY")
-        self._actuator("solenoid_inlet", "OPEN", "INLET SOLENOID")
+        for idx, (label, action) in enumerate(steps):
+            if self._abort:
+                self._set_step_state(idx, "aborted")
+                self._set_status("ABORTED")
+                return
 
+            self._current_step_index = idx
+            self._set_step_state(idx, "active")
+            self._set_status(label)
+            if self.on_status:
+                self.on_status((idx + 0.1) / len(steps), f"Vacuum: {label}")
+
+            self._pause_event.wait()
+            try:
+                if action() is False:
+                    self._set_step_state(idx, "aborted")
+                    self._set_status("ABORTED")
+                    return
+            except RuntimeError as err:
+                self.snack(str(err))
+                self._set_step_state(idx, "aborted")
+                self._set_status("ERROR")
+                return
+
+            self._set_step_state(idx, "done")
+
+        self._set_status("Sequence complete")
         if self.on_status:
-            self.on_status(0.60, "Vacuum: evacuating")
-
-        if not self._sleep_or_abort(t_evac):
-            return
-
-        # Inlet CLOSE -> Pump stays ON until inlet closed
-        self._set_status("INLET CLOSING: Pump still ON")
-        self._actuator("solenoid_inlet", "CLOSE", "INLET SOLENOID")
-
-        # Pump OFF
-        self._set_status("PUMP OFF: Holding vacuum")
-        self._actuator("pump_relay", "OFF", "PUMP RELAY")
-
-        if self.on_status:
-            self.on_status(0.85, "Vacuum: holding")
-
-        if not self._sleep_or_abort(t_hold):
-            return
-
-        # Final: Outlet OPEN
-        self._set_status("DONE: Outlet OPEN")
-        self._actuator("solenoid_valve", "OPEN", "OUTLET SOLENOID")
-
-        if self.on_status:
-            self.on_status(1.00, "Vacuum: completed (outlet open)")
+            self.on_status(1.0, "Vacuum: sequence complete")
 
     def start_auto_vacuum(self, e=None):
         if not self._ensure_auto():
@@ -254,8 +283,12 @@ class VacuumStage:
             self.snack("Vacuum sequence already running.")
             return
 
+        distance = self._read_positive(self.pair_distance)
         t_evac = self._read_positive(self.evacuate_time)
         t_hold = self._read_positive(self.hold_time)
+        if distance is None:
+            self.snack("Invalid distance for auto sequence")
+            return
         if t_evac is None:
             self.snack("Invalid evacuate time")
             return
@@ -265,13 +298,14 @@ class VacuumStage:
 
         self._worker = threading.Thread(
             target=self._run_vacuum_sequence,
-            args=(t_evac, t_hold),
+            args=(distance, t_evac, t_hold),
             daemon=True,
         )
         self._worker.start()
 
     def stop_auto_vacuum(self, e=None):
         self._abort = True
+        self._pause_event.set()
 
         # Safe off
         self._actuator("solenoid_inlet", "CLOSE", "INLET SOLENOID")
@@ -279,8 +313,25 @@ class VacuumStage:
         self._actuator("pump_relay", "OFF", "PUMP RELAY")
 
         self._set_status("ABORTED by user")
+        self._reset_sequence_state()
         if self.on_status:
             self.on_status(0.0, "Vacuum: aborted")
+
+    def pause_auto_sequence(self):
+        if self._worker and self._worker.is_alive():
+            self._pause_event.clear()
+            self._set_status("Paused")
+
+    def resume_auto_sequence(self):
+        if self._worker and self._worker.is_alive():
+            self._pause_event.set()
+            if self._current_step_index >= 0:
+                label = self.AUTO_STEP_LABELS[self._current_step_index]
+                self._set_status(f"Resumed: {label}")
+
+    def reset_auto_sequence(self):
+        self.stop_auto_vacuum()
+        self._reset_sequence_state()
 
     # ===================== UI sections =====================
     def coupled_motors_ui(self) -> ft.Control:
@@ -307,44 +358,38 @@ class VacuumStage:
                         self._rapid_hold_btn("CW", status),
                     ]
                 ),
-            ]
-        )
-
-    def timing_ui(self) -> ft.Control:
-        # These are the ONLY inputs you wanted below coupled motor section
-        return ft.Column(
-            controls=[
+                ft.Container(height=16),
+                ft.Divider(color=ft.Colors.WHITE12),
+                ft.Container(height=8),
+                ft.Text("Vacuum timing inputs (shared)", color=ft.Colors.WHITE70, size=14, weight=ft.FontWeight.W_600),
+                ft.Container(height=8),
                 self.evacuate_time,
                 ft.Container(height=10),
                 self.hold_time,
-                ft.Container(height=12),
-
-                ft.Row(
-                    controls=[
-                        ft.ElevatedButton("START AUTO VACUUM", icon=ft.Icons.PLAY_ARROW, on_click=self.start_auto_vacuum),
-                        ft.OutlinedButton("STOP", icon=ft.Icons.STOP, on_click=self.stop_auto_vacuum),
-                    ]
-                ),
-                ft.Container(height=10),
-                self.status_text,
             ]
+        )
+
+    def auto_sequence_ui(self) -> ft.Control:
+        return ft.Column(
+            spacing=10,
+            controls=[
+                ft.Text("Auto sequence status", color=ft.Colors.WHITE70, size=16, weight=ft.FontWeight.W_600),
+                ft.Column(controls=self._step_controls, spacing=8, tight=True),
+                ft.Text(
+                    "Use the dashboard controls to START / PAUSE / RESUME this stage.",
+                    size=12,
+                    color=ft.Colors.WHITE54,
+                ),
+                self.status_text,
+            ],
         )
 
     # ===================== final view =====================
     def view(self) -> ft.Control:
-        left_scroll = ft.ListView(
-            expand=True,
-            controls=[
-                self._panel("Motors 02.1 + 02.2 – Control", self.coupled_motors_ui()),
-                ft.Container(height=14),
-                self._panel("Vacuum timings (only 2 inputs) + Auto vacuum", self.timing_ui()),
-            ],
-        )
-
         return ft.ResponsiveRow(
             columns=12,
             controls=[
-                ft.Container(col={"xs": 12, "md": 7}, content=left_scroll),
-                ft.Container(col={"xs": 12, "md": 5}, content=self.auto_panel.view()),
+                ft.Container(col={"xs": 12, "md": 7}, content=self._panel("Motors 01.1 + 01.2 – Manual control", self.coupled_motors_ui())),
+                ft.Container(col={"xs": 12, "md": 5}, content=self._panel("Auto vacuum sequence", self.auto_sequence_ui())),
             ],
         )

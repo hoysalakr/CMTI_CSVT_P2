@@ -38,8 +38,8 @@ class DashboardView:
         border_color = ft.Colors.GREEN_ACCENT if s.active else ft.Colors.WHITE12
         bg = (
             ft.LinearGradient(
-                begin=ft.alignment.top_left,
-                end=ft.alignment.bottom_right,
+                begin=ft.alignment.Alignment(-1, -1),
+                end=ft.alignment.Alignment(1, 1),
                 colors=[ft.Colors.GREEN_ACCENT.with_opacity(0.25), ft.Colors.BLACK54],
             )
             if s.active

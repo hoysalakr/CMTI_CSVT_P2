@@ -223,6 +223,60 @@ class VacuumStage:
                 return True
             time.sleep(0.05)
 
+    def _run_manual_timing(self, t_evac: float, t_hold: float):
+        """Run only the timing part (no box movement) for MANUAL mode using shared inputs."""
+        self._abort = False
+        self._pause_event.set()
+        self._reset_sequence_state()
+
+        # Ensure outlet is initially closed
+        self._actuator("solenoid_valve", "CLOSE", "OUTLET SOLENOID")
+
+        # Map into existing step chips: indices 1..6 (skip box moves)
+        manual_steps = [
+            (1, "Pump ON", lambda: self._actuator("pump_relay", "ON", "PUMP RELAY") or True),
+            (
+                2,
+                f"Evacuating for {t_evac:.1f}s",
+                lambda: self._actuator("solenoid_inlet", "OPEN", "INLET SOLENOID") or self._wait_with_pause(t_evac),
+            ),
+            (3, "Inlet CLOSE", lambda: self._actuator("solenoid_inlet", "CLOSE", "INLET SOLENOID") or True),
+            (4, "Pump OFF", lambda: self._actuator("pump_relay", "OFF", "PUMP RELAY") or True),
+            (5, f"Hold for {t_hold:.1f}s", lambda: self._wait_with_pause(t_hold)),
+            (6, "Outlet OPEN", lambda: self._actuator("solenoid_valve", "OPEN", "OUTLET SOLENOID") or True),
+        ]
+
+        for idx, label, action in manual_steps:
+            if self._abort:
+                self._set_step_state(idx, "aborted")
+                self._set_status("ABORTED")
+                return
+
+            self._current_step_index = idx
+            self._set_step_state(idx, "active")
+            self._set_status(label)
+            if self.on_status:
+                # Use a coarse fraction based on this subset of steps
+                self.on_status((idx + 0.1) / len(self.AUTO_STEP_LABELS), f"Vacuum (manual): {label}")
+
+            self._pause_event.wait()
+            try:
+                if action() is False:
+                    self._set_step_state(idx, "aborted")
+                    self._set_status("ABORTED")
+                    return
+            except RuntimeError as err:
+                self.snack(str(err))
+                self._set_step_state(idx, "aborted")
+                self._set_status("ERROR")
+                return
+
+            self._set_step_state(idx, "done")
+
+        self._set_status("Manual timing complete")
+        if self.on_status:
+            self.on_status(1.0, "Vacuum: manual timing complete")
+
     def _run_vacuum_sequence(self, distance: float, t_evac: float, t_hold: float):
         self._abort = False
         self._pause_event.set()
@@ -317,6 +371,35 @@ class VacuumStage:
         if self.on_status:
             self.on_status(0.0, "Vacuum: aborted")
 
+    def start_manual_vacuum(self, e=None):
+        """Start timing-only vacuum using current evacuate/hold values in MANUAL mode.
+
+        Box position is assumed to be set by the user via coupled motor controls.
+        """
+        if self.auto_mode:
+            self.snack("Switch to MANUAL to run manual timing.")
+            return
+
+        if self._worker is not None and self._worker.is_alive():
+            self.snack("Vacuum sequence already running.")
+            return
+
+        t_evac = self._read_positive(self.evacuate_time)
+        t_hold = self._read_positive(self.hold_time)
+        if t_evac is None:
+            self.snack("Invalid evacuate time")
+            return
+        if t_hold is None:
+            self.snack("Invalid hold time")
+            return
+
+        self._worker = threading.Thread(
+            target=self._run_manual_timing,
+            args=(t_evac, t_hold),
+            daemon=True,
+        )
+        self._worker.start()
+
     def pause_auto_sequence(self):
         if self._worker and self._worker.is_alive():
             self._pause_event.clear()
@@ -366,6 +449,16 @@ class VacuumStage:
                 self.evacuate_time,
                 ft.Container(height=10),
                 self.hold_time,
+                ft.Container(height=12),
+                ft.Row(
+                    controls=[
+                        ft.ElevatedButton(
+                            "RUN VACUUM (manual)",
+                            icon=ft.Icons.PLAY_ARROW,
+                            on_click=self.start_manual_vacuum,
+                        ),
+                    ]
+                ),
             ]
         )
 

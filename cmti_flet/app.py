@@ -65,7 +65,8 @@ class CmtiApp:
             "Vacuum": StageStatus(active=False, progress=0.0, now_running="Idle"),
             "Heating": StageStatus(active=False, progress=0.0, now_running="Idle"),
             "Packaging": StageStatus(active=False, progress=0.0, now_running="Idle"),
-            "Sterilization": StageStatus(active=False, progress=0.0, now_running="Idle"),
+            "Sterilization 1": StageStatus(active=False, progress=0.0, now_running="Idle"),
+            "Sterilization 2": StageStatus(active=False, progress=0.0, now_running="Idle"),
         }
 
         # Main containers
@@ -260,9 +261,11 @@ class CmtiApp:
             "Vacuum": Stage.VACUUM,
             "Heating": Stage.HEATING,
             "Packaging": Stage.PACKAGING,
-            "Sterilization": Stage.STERILIZATION,
+            # Both sterilization cards open the same Sterilization settings page for now
+            "Sterilization 1": Stage.STERILIZATION,
+            "Sterilization 2": Stage.STERILIZATION,
         }
-        self.stage = mapping[stage_name]
+        self.stage = mapping.get(stage_name, self.stage)
         self._render()
 
     def update_stage_status(self, stage_name: str, progress=None, now_running=None, make_active=False):

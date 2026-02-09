@@ -164,14 +164,63 @@ class DashboardView:
 
     # ---------- Final dashboard ----------
     def view(self) -> ft.Control:
-        # Vertical flow listing – matches dashboard plus highlights active stage
-        flow = ["Dispenser", "Vacuum", "Heating", "Packaging", "Sterilization"]
-        flow_controls: list[ft.Control] = []
+        # ---- Stage names (2 sterilization stages) ----
+        top = ["Dispenser", "Vacuum", "Heating"]
+        bottom = ["Sterilization 2", "Sterilization 1", "Packaging"]  # right-to-left visually
 
-        for idx, stage_name in enumerate(flow):
-            flow_controls.append(self._stage_card(stage_name, self.statuses[stage_name]))
-            if idx < len(flow) - 1:
-                flow_controls.append(self._arrow_vertical())
+        # ---- Top row: Dispenser -> Vacuum -> Heating ----
+        top_row = ft.Row(
+            spacing=self.gap,
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                self._stage_card(top[0], self.statuses[top[0]]),
+                self._arrow_h(),
+                self._stage_card(top[1], self.statuses[top[1]]),
+                self._arrow_h(),
+                self._stage_card(top[2], self.statuses[top[2]]),
+            ],
+        )
+
+        # ---- Down arrow visually connecting Heating → Packaging ----
+        # Row layout matches top_row columns: [card, arrow, card, arrow, card]
+        down_arrow = ft.Row(
+            spacing=self.gap,
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Container(width=self.card_w),      # under Dispenser
+                ft.Container(width=self.arrow_w),     # under arrow
+                ft.Container(width=self.card_w),      # under Vacuum
+                ft.Container(width=self.arrow_w),     # under arrow
+                self._arrow_down(),                   # directly under Heating
+            ],
+        )
+
+        # ---- Bottom row: Packaging -> Ster1 -> Ster2 (displayed as Ster2 <- Ster1 <- Packaging) ----
+        bottom_row = ft.Row(
+            spacing=self.gap,
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                self._stage_card(bottom[0], self.statuses[bottom[0]]),
+                self._arrow_left(),
+                self._stage_card(bottom[1], self.statuses[bottom[1]]),
+                self._arrow_left(),
+                self._stage_card(bottom[2], self.statuses[bottom[2]]),
+            ],
+        )
+
+        # ---- Whole process diagram block ----
+        diagram = ft.Column(
+            spacing=14,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                top_row,
+                down_arrow,
+                bottom_row,
+            ],
+        )
 
         return ft.Container(
             expand=True,
@@ -183,7 +232,7 @@ class DashboardView:
                     self._controls_bar(),
                     ft.Divider(color=ft.Colors.WHITE12),
                     ft.Text("Process Flow", size=18, weight=ft.FontWeight.BOLD),
-                    ft.Column(spacing=10, controls=flow_controls, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    diagram,
                 ],
             ),
         )

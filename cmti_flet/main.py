@@ -11,6 +11,11 @@ def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.DARK
     page.window_min_width = 1100
     page.window_min_height = 650
+    # Try to start as large as possible on a typical HD screen
+    page.window_width = 1920
+    page.window_height = 1080
+    page.window_maximized = True
+    page.window_full_screen = True
     page.padding = 0
 
     CmtiApp(page).mount()

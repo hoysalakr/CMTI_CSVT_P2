@@ -25,6 +25,7 @@ class AutoStepsPanel:
         default_unit: str = "mm",
         on_submit: Optional[Callable[[List[Step]], None]] = None,
         require_auto_mode: Optional[Callable[[], bool]] = None,  # return True if AUTO is enabled
+        initial_measurements: Optional[List[float]] = None,
     ):
         self.snack = snack
         self.title = title
@@ -34,12 +35,19 @@ class AutoStepsPanel:
 
         # list of (measurement_tf, unit_tf)
         self.rows: List[tuple[ft.TextField, ft.TextField]] = []
-        self._add_row()  # start with 1 row
 
-    def _add_row(self):
+        # If caller provided initial measurements, pre-populate rows with those
+        if initial_measurements:
+            for val in initial_measurements:
+                self._add_row(initial_value=str(val))
+        else:
+            # default: start with a single empty row
+            self._add_row()
+    def _add_row(self, initial_value: Optional[str] = None):
         m = ft.TextField(
             label="Measurement",
             hint_text="value",
+            value=initial_value or "",
             dense=True,
             keyboard_type=ft.KeyboardType.NUMBER,
         )

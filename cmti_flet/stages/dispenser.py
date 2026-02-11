@@ -43,12 +43,17 @@ class DispenserStage:
         self.pair_jogging = False
         self.pair_dir = None
 
+        # last submitted auto steps (used by dashboard play)
+        self.last_auto_steps: list[Step] | None = None
+
         self.auto_panel = AutoStepsPanel(
             snack=self.snack,
             title="Auto Inputs (Dispenser)",
             default_unit="mm",
             require_auto_mode=lambda: self.auto_mode,
             on_submit=self._on_auto_steps_submit,
+            # Pre-populate 5 default steps, but allow full edit/add/delete
+            initial_measurements=[80, 50, 30, 10, 10],
         )
 
     # ===================== common helpers =====================
@@ -86,6 +91,8 @@ class DispenserStage:
 
     # ===================== AUTO callbacks =====================
     def _on_auto_steps_submit(self, steps: list[Step]):
+        # remember last submitted steps so dashboard can use them
+        self.last_auto_steps = steps
         if self.on_status:
             self.on_status(0.60, f"Auto sequence queued: {len(steps)} step(s)")
 

@@ -1,5 +1,7 @@
 import sys
 import os
+import threading
+import time
 from stages.dashboard import DashboardView, StageStatus
 from stages.vacuum import VacuumStage
 from stages.heating import HeatingStage
@@ -59,6 +61,10 @@ class CmtiApp:
 
         # ---------- DASHBOARD shared machine state ----------
         self.run_state = "STOPPED"  # RUNNING / PAUSED / STOPPED
+
+        # background thread for full-auto run
+        self._run_thread: threading.Thread | None = None
+        self._abort_run = False
 
         self.statuses = {
             "Dispenser": StageStatus(active=False, progress=0.0, now_running="Idle"),
@@ -235,22 +241,153 @@ class CmtiApp:
             self.statuses[k].active = k == name
 
     def _dashboard_play(self, e):
+        # Validate that auto values are present for all stages before starting
+        if not self.auto_mode:
+            self._snack("Turn ON AUTO to start full sequence")
+            return
+
+        # ensure stage objects exist so we can inspect their state
+        if self._dispenser_stage is None:
+            self.stage = Stage.DISPENSER
+            self._build_stage_body()
+        if self._vacuum_stage is None:
+            self.stage = Stage.VACUUM
+            self._build_stage_body()
+        if self._heating_stage is None:
+            self.stage = Stage.HEATING
+            self._build_stage_body()
+        if self._packaging_stage is None:
+            self.stage = Stage.PACKAGING
+            self._build_stage_body()
+        if self._sterilization_stage is None:
+            self.stage = Stage.STERILIZATION
+            self._build_stage_body()
+
+        # ---- Dispenser auto steps ----
+        if not getattr(self._dispenser_stage, "last_auto_steps", None):
+            self._snack("Auto values not added for Dispenser")
+            return
+
+        # ---- Vacuum: use shared manual inputs as auto values ----
+        v = self._vacuum_stage
+        try:
+            dist = float((v.pair_distance.value or "").strip())
+            t_evac = float((v.evacuate_time.value or "").strip())
+            t_hold = float((v.hold_time.value or "").strip())
+        except Exception:
+            self._snack("Auto values not added for Vacuum")
+            return
+        if dist <= 0 or t_evac <= 0 or t_hold <= 0:
+            self._snack("Auto values not added for Vacuum")
+            return
+
+        # ---- Heating / Packaging / Sterilization auto steps ----
+        if not getattr(self._heating_stage, "last_auto_steps", None):
+            self._snack("Auto values not added for Heating")
+            return
+        if not getattr(self._packaging_stage, "last_auto_steps", None):
+            self._snack("Auto values not added for Packaging")
+            return
+        if not getattr(self._sterilization_stage, "last_auto_steps", None):
+            self._snack("Auto values not added for Sterilization")
+            return
+
+        # Already running?
+        if self._run_thread is not None and self._run_thread.is_alive():
+            self._snack("Auto sequence already running")
+            return
+
+        self._abort_run = False
         self.run_state = "RUNNING"
-        self._snack("Machine started (stub)")
-        self._render()
+        self._snack("Starting full auto sequence")
+
+        def runner():
+            # Helper: simulate a stage based on number of auto steps
+            def simulate_stage(name: str, steps_len: int, seconds_per_step: float = 1.0):
+                total_time = max(steps_len * seconds_per_step, 0.5)
+                start = time.time()
+                while not self._abort_run:
+                    elapsed = time.time() - start
+                    if elapsed >= total_time:
+                        self.update_stage_status(name, progress=1.0, now_running="Complete", make_active=True)
+                        break
+                    frac = min(1.0, elapsed / total_time)
+                    self.update_stage_status(name, progress=frac, now_running="Running", make_active=True)
+                    time.sleep(0.2)
+
+            try:
+                # 1) Dispenser
+                self.update_stage_status("Dispenser", progress=0.0, now_running="Auto run", make_active=True)
+                # Hardware integration for dispenser auto not wired yet – just simulate using step count
+                dsp_steps = len(self._dispenser_stage.last_auto_steps or [])
+                simulate_stage("Dispenser", dsp_steps)
+                if self._abort_run:
+                    return
+
+                # 2) Vacuum – call its real auto sequence
+                self.update_stage_status("Vacuum", progress=0.0, now_running="Auto vacuum", make_active=True)
+                self._vacuum_stage.start_auto_vacuum()
+                # Wait until its worker thread finishes
+                while not self._abort_run:
+                    w = self._vacuum_stage._worker
+                    if w is None or not w.is_alive():
+                        break
+                    time.sleep(0.2)
+                if self._abort_run:
+                    return
+
+                # 3) Heating (simulate)
+                heat_steps = len(self._heating_stage.last_auto_steps or [])
+                simulate_stage("Heating", heat_steps)
+                if self._abort_run:
+                    return
+
+                # 4) Packaging (simulate)
+                pack_steps = len(self._packaging_stage.last_auto_steps or [])
+                simulate_stage("Packaging", pack_steps)
+                if self._abort_run:
+                    return
+
+                # 5) Sterilization (simulate)
+                ster_steps = len(self._sterilization_stage.last_auto_steps or [])
+                simulate_stage("Sterilization 1", ster_steps)
+                if self._abort_run:
+                    return
+
+                self.run_state = "STOPPED"
+                self._snack("Full auto sequence complete")
+            finally:
+                self._run_thread = None
+                self._render()
+
+        self._run_thread = threading.Thread(target=runner, daemon=True)
+        self._run_thread.start()
 
     def _dashboard_pause(self, e):
+        # For now, pause only affects Vacuum stage (when running there)
         self.run_state = "PAUSED"
-        self._snack("Machine paused (stub)")
-        self._render()
+        try:
+            if self._vacuum_stage is not None:
+                self._vacuum_stage.pause_auto_sequence()
+        finally:
+            self._snack("Machine paused")
+            self._render()
 
     def _dashboard_reset(self, e):
+        # Stop any running sequence and reset dashboard
+        self._abort_run = True
+        if self._vacuum_stage is not None:
+            try:
+                self._vacuum_stage.reset_auto_sequence()
+            except Exception:
+                pass
+
         self.run_state = "STOPPED"
         for k in self.statuses:
             self.statuses[k].progress = 0.0
             self.statuses[k].now_running = "Idle"
             self.statuses[k].active = False
-        self._snack("Machine reset (stub)")
+        self._snack("Machine reset")
         self._render()
 
     def _open_stage_from_dashboard(self, stage_name: str):

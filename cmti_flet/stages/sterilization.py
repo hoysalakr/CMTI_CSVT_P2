@@ -10,6 +10,9 @@ class SterilizationStage:
         self.snack = snack
         self.on_status = on_status
 
+        # last submitted auto steps (used by dashboard play)
+        self.last_auto_steps: list[Step] | None = None
+
         self.auto_panel = AutoStepsPanel(
             snack=self.snack,
             title="Auto Inputs (Sterilization)",
@@ -19,6 +22,8 @@ class SterilizationStage:
         )
 
     def _on_auto_steps_submit(self, steps: list[Step]):
+        # remember last submitted steps so dashboard can use them
+        self.last_auto_steps = steps
         if self.on_status:
             self.on_status(0.60, f"Sterilization auto queued: {len(steps)} step(s)")
 

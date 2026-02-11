@@ -6,7 +6,8 @@ from stages.dashboard import DashboardView, StageStatus
 from stages.vacuum import VacuumStage
 from stages.heating import HeatingStage
 from stages.packaging import PackagingStage
-from stages.sterilization import SterilizationStage
+from stages.sterilization import SterilizationAcetoneStage
+from stages.sterilization_uv import SterilizationUVStage
 from theme import (
     THEME_ACCENT,
     THEME_ACCENT_DARK,
@@ -35,7 +36,8 @@ class Stage(Enum):
     VACUUM = "Vacuum"
     HEATING = "Heating"
     PACKAGING = "Packaging"
-    STERILIZATION = "Sterilization"
+    STERILIZATION_ACETONE = "Sterilization – Acetone"
+    STERILIZATION_UV = "Sterilization – UV"
 
 
 class TopSection(Enum):
@@ -57,7 +59,8 @@ class CmtiApp:
         self._vacuum_stage = None
         self._heating_stage = None
         self._packaging_stage = None
-        self._sterilization_stage = None
+        self._sterilization_acetone_stage = None
+        self._sterilization_uv_stage = None
 
         # ---------- DASHBOARD shared machine state ----------
         self.run_state = "STOPPED"  # RUNNING / PAUSED / STOPPED
@@ -118,7 +121,8 @@ class CmtiApp:
             self._vacuum_stage,
             self._heating_stage,
             self._packaging_stage,
-            self._sterilization_stage,
+            self._sterilization_acetone_stage,
+            self._sterilization_uv_stage,
         ):
             if stage is not None:
                 stage.auto_mode = self.auto_mode
@@ -220,19 +224,33 @@ class CmtiApp:
 
             return self._packaging_stage.view()
 
-        if self.stage == Stage.STERILIZATION:
-            if self._sterilization_stage is None:
-                self._sterilization_stage = SterilizationStage(
+        if self.stage == Stage.STERILIZATION_ACETONE:
+            if self._sterilization_acetone_stage is None:
+                self._sterilization_acetone_stage = SterilizationAcetoneStage(
                     auto_mode=self.auto_mode,
                     snack=self._snack,
                     on_status=lambda p, msg: self.update_stage_status(
-                        "Sterilization", progress=p, now_running=msg, make_active=True
+                        "Sterilization 1", progress=p, now_running=msg, make_active=True
                     ),
                 )
             else:
-                self._sterilization_stage.auto_mode = self.auto_mode
+                self._sterilization_acetone_stage.auto_mode = self.auto_mode
 
-            return self._sterilization_stage.view()
+            return self._sterilization_acetone_stage.view()
+
+        if self.stage == Stage.STERILIZATION_UV:
+            if self._sterilization_uv_stage is None:
+                self._sterilization_uv_stage = SterilizationUVStage(
+                    auto_mode=self.auto_mode,
+                    snack=self._snack,
+                    on_status=lambda p, msg: self.update_stage_status(
+                        "Sterilization 2", progress=p, now_running=msg, make_active=True
+                    ),
+                )
+            else:
+                self._sterilization_uv_stage.auto_mode = self.auto_mode
+
+            return self._sterilization_uv_stage.view()
 
         return PlaceholderStage(title=f"{self.stage.value} page\n(implement later)").view()
 
@@ -259,13 +277,33 @@ class CmtiApp:
         if self._packaging_stage is None:
             self.stage = Stage.PACKAGING
             self._build_stage_body()
-        if self._sterilization_stage is None:
-            self.stage = Stage.STERILIZATION
+        if self._sterilization_acetone_stage is None:
+            self.stage = Stage.STERILIZATION_ACETONE
             self._build_stage_body()
 
         # ---- Dispenser auto steps ----
-        if not getattr(self._dispenser_stage, "last_auto_steps", None):
-            self._snack("Auto values not added for Dispenser")
+        # No longer require pressing ENTER in the Auto panel.
+        # Instead, infer the number of steps from the currently typed rows.
+        dsp_steps_count = 0
+        try:
+            panel = getattr(self._dispenser_stage, "auto_panel", None)
+            if panel is not None:
+                rows = getattr(panel, "rows", [])
+                for m, _ in rows:
+                    raw = (m.value or "").strip()
+                    if not raw:
+                        continue
+                    try:
+                        val = float(raw)
+                    except Exception:
+                        continue
+                    if val > 0:
+                        dsp_steps_count += 1
+        except Exception:
+            dsp_steps_count = 0
+
+        if dsp_steps_count == 0:
+            self._snack("Add at least one auto measurement for Dispenser")
             return
 
         # ---- Vacuum: use shared manual inputs as auto values ----
@@ -281,17 +319,6 @@ class CmtiApp:
             self._snack("Auto values not added for Vacuum")
             return
 
-        # ---- Heating / Packaging / Sterilization auto steps ----
-        if not getattr(self._heating_stage, "last_auto_steps", None):
-            self._snack("Auto values not added for Heating")
-            return
-        if not getattr(self._packaging_stage, "last_auto_steps", None):
-            self._snack("Auto values not added for Packaging")
-            return
-        if not getattr(self._sterilization_stage, "last_auto_steps", None):
-            self._snack("Auto values not added for Sterilization")
-            return
-
         # Already running?
         if self._run_thread is not None and self._run_thread.is_alive():
             self._snack("Auto sequence already running")
@@ -299,7 +326,9 @@ class CmtiApp:
 
         self._abort_run = False
         self.run_state = "RUNNING"
-        self._snack("Starting full auto sequence")
+
+        # capture dispenser steps count for the worker thread
+        steps_for_dispenser = dsp_steps_count
 
         def runner():
             # Helper: simulate a stage based on number of auto steps
@@ -318,9 +347,8 @@ class CmtiApp:
             try:
                 # 1) Dispenser
                 self.update_stage_status("Dispenser", progress=0.0, now_running="Auto run", make_active=True)
-                # Hardware integration for dispenser auto not wired yet – just simulate using step count
-                dsp_steps = len(self._dispenser_stage.last_auto_steps or [])
-                simulate_stage("Dispenser", dsp_steps)
+                # Hardware integration for dispenser auto not wired yet – just simulate using inferred step count
+                simulate_stage("Dispenser", steps_for_dispenser)
                 if self._abort_run:
                     return
 
@@ -337,19 +365,20 @@ class CmtiApp:
                     return
 
                 # 3) Heating (simulate)
-                heat_steps = len(self._heating_stage.last_auto_steps or [])
+                # If no steps were submitted, still simulate with a small default
+                heat_steps = len(self._heating_stage.last_auto_steps or []) or 3
                 simulate_stage("Heating", heat_steps)
                 if self._abort_run:
                     return
 
                 # 4) Packaging (simulate)
-                pack_steps = len(self._packaging_stage.last_auto_steps or [])
+                pack_steps = len(self._packaging_stage.last_auto_steps or []) or 3
                 simulate_stage("Packaging", pack_steps)
                 if self._abort_run:
                     return
 
-                # 5) Sterilization (simulate)
-                ster_steps = len(self._sterilization_stage.last_auto_steps or [])
+                # 5) Sterilization (simulate – Acetone)
+                ster_steps = len(self._sterilization_acetone_stage.last_auto_steps or []) or 3
                 simulate_stage("Sterilization 1", ster_steps)
                 if self._abort_run:
                     return
@@ -364,7 +393,9 @@ class CmtiApp:
         self._run_thread.start()
 
     def _dashboard_pause(self, e):
-        # For now, pause only affects Vacuum stage (when running there)
+        # Global pause: abort the current auto run thread and pause
+        # the vacuum stage if it is in the middle of its own worker.
+        self._abort_run = True
         self.run_state = "PAUSED"
         try:
             if self._vacuum_stage is not None:
@@ -398,9 +429,8 @@ class CmtiApp:
             "Vacuum": Stage.VACUUM,
             "Heating": Stage.HEATING,
             "Packaging": Stage.PACKAGING,
-            # Both sterilization cards open the same Sterilization settings page for now
-            "Sterilization 1": Stage.STERILIZATION,
-            "Sterilization 2": Stage.STERILIZATION,
+            "Sterilization 1": Stage.STERILIZATION_ACETONE,
+            "Sterilization 2": Stage.STERILIZATION_UV,
         }
         self.stage = mapping.get(stage_name, self.stage)
         self._render()
@@ -442,6 +472,8 @@ class CmtiApp:
                 on_pause=self._dashboard_pause,
                 on_reset=self._dashboard_reset,
                 on_stage_click=self._open_stage_from_dashboard,
+                auto_mode=self.auto_mode,
+                on_mode_toggle=self._on_mode_toggle,
             ).view()
         else:
             title = self.stage.value

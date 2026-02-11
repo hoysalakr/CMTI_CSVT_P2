@@ -19,6 +19,7 @@ class HeatingStage:
             default_unit="mm",
             require_auto_mode=lambda: self.auto_mode,
             on_submit=self._on_auto_steps_submit,
+            initial_measurements=[80, 50, 30, 10, 10],
         )
 
     def _on_auto_steps_submit(self, steps: list[Step]):

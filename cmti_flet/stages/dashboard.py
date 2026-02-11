@@ -19,6 +19,8 @@ class DashboardView:
         on_pause,
         on_reset,
         on_stage_click: Callable[[str], None],
+        auto_mode: bool = False,
+        on_mode_toggle=None,  # callback for AUTO/MANUAL switch
     ):
         self.statuses = statuses
         self.run_state = run_state
@@ -26,6 +28,10 @@ class DashboardView:
         self.on_pause = on_pause
         self.on_reset = on_reset
         self.on_stage_click = on_stage_click
+
+        # mode state (mirrors app's global auto_mode)
+        self.auto_mode = auto_mode
+        self.on_mode_toggle = on_mode_toggle
 
         # Tune these once and the whole dashboard stays aligned
         self.card_w = 290
@@ -40,7 +46,7 @@ class DashboardView:
             ft.LinearGradient(
                 begin=ft.alignment.Alignment(-1, -1),
                 end=ft.alignment.Alignment(1, 1),
-                colors=[ft.Colors.GREEN_ACCENT.with_opacity(0.25), ft.Colors.BLACK54],
+                colors=[ft.Colors.with_opacity(0.25, ft.Colors.GREEN_ACCENT), ft.Colors.BLACK54],
             )
             if s.active
             else ft.Colors.BLACK54
@@ -49,7 +55,7 @@ class DashboardView:
             ft.BoxShadow(
                 spread_radius=3,
                 blur_radius=18,
-                color=ft.Colors.GREEN_ACCENT.with_opacity(0.45),
+                color=ft.Colors.with_opacity(0.45, ft.Colors.GREEN_ACCENT),
                 offset=ft.Offset(0, 0),
             )
         ] if s.active else []
@@ -139,10 +145,38 @@ class DashboardView:
             else ft.Colors.RED_ACCENT
         )
 
+        mode_label = "AUTO" if self.auto_mode else "MANUAL"
+        mode_color = ft.Colors.GREEN_ACCENT if self.auto_mode else ft.Colors.GREY_400
+
+        mode_chip = ft.Container(
+            padding=ft.padding.symmetric(8, 4),
+            border_radius=8,
+            bgcolor=ft.Colors.with_opacity(0.18, mode_color),
+            border=ft.border.all(1, mode_color),
+            content=ft.Row(
+                spacing=6,
+                controls=[
+                    ft.Text(
+                        f"MODE: {mode_label}",
+                        size=12,
+                        color=mode_color,
+                        weight=ft.FontWeight.W_700,
+                    ),
+                    ft.Switch(
+                        value=self.auto_mode,
+                        on_change=self.on_mode_toggle if self.on_mode_toggle is not None else None,
+                        scale=0.8,
+                    ),
+                ],
+            ),
+        )
+
         return ft.Row(
             controls=[
                 ft.Text("Machine Control", size=18, weight=ft.FontWeight.BOLD),
                 ft.Container(expand=True),
+                mode_chip,
+                ft.Container(width=10),
                 ft.Container(
                     padding=ft.padding.symmetric(10, 6),
                     border_radius=10,

@@ -4,7 +4,7 @@ from components.auto_steps import AutoStepsPanel, Step
 from theme import THEME_BORDER, THEME_CARD, THEME_TEXT_PRIMARY, THEME_TEXT_SECONDARY
 
 
-class SterilizationAcetoneStage:
+class SterilizationUVStage:
     def __init__(self, auto_mode: bool, snack, on_status=None):
         self.auto_mode = auto_mode
         self.snack = snack
@@ -15,7 +15,7 @@ class SterilizationAcetoneStage:
 
         self.auto_panel = AutoStepsPanel(
             snack=self.snack,
-            title="Auto Inputs (Sterilization – Acetone)",
+            title="Auto Inputs (Sterilization – UV)",
             default_unit="mm",
             require_auto_mode=lambda: self.auto_mode,
             on_submit=self._on_auto_steps_submit,
@@ -26,14 +26,14 @@ class SterilizationAcetoneStage:
         # remember last submitted steps so dashboard can use them
         self.last_auto_steps = steps
         if self.on_status:
-            self.on_status(0.60, f"Sterilization (Acetone) auto queued: {len(steps)} step(s)")
+            self.on_status(0.60, f"Sterilization (UV) auto queued: {len(steps)} step(s)")
 
     def manual_ui(self) -> ft.Control:
         return ft.Container(
             expand=True,
             alignment=ft.alignment.Alignment(0, 0),
             content=ft.Text(
-                "Sterilization manual page (to be implemented)",
+                "Sterilization UV manual page (to be implemented)",
                 color=THEME_TEXT_SECONDARY,
             ),
         )
@@ -59,7 +59,7 @@ class SterilizationAcetoneStage:
         return ft.ResponsiveRow(
             columns=12,
             controls=[
-                ft.Container(col={"xs": 12, "md": 6}, content=self._panel("Manual (Acetone)", self.manual_ui())),
+                ft.Container(col={"xs": 12, "md": 6}, content=self._panel("Manual (UV)", self.manual_ui())),
                 ft.Container(col={"xs": 12, "md": 6}, content=self.auto_panel.view()),
             ],
         )

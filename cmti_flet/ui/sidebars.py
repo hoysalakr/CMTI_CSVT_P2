@@ -82,7 +82,8 @@ class StageSidebar:
             (stage_enum.VACUUM, "Vacuum"),
             (stage_enum.HEATING, "Heating"),
             (stage_enum.PACKAGING, "Packaging"),
-            (stage_enum.STERILIZATION, "Sterilization"),
+            (stage_enum.STERILIZATION_ACETONE, "Sterilization (Acetone)"),
+            (stage_enum.STERILIZATION_UV, "Sterilization (UV)"),
         ]
 
         return ft.Container(

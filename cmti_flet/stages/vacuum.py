@@ -116,8 +116,14 @@ class VacuumStage:
         )
 
     def _ui_update(self, c: ft.Control):
-        if c.page is not None:
+        # Safely attempt to update the control; when called from a
+        # background thread some controls may not yet be attached to
+        # a page, in which case Flet raises RuntimeError. We can
+        # ignore that here because it only affects visual feedback.
+        try:
             c.update()
+        except RuntimeError:
+            pass
 
     def _set_status(self, msg: str):
         self.status_text.value = f"Status: {msg}"
